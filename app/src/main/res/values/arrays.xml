@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="xposed_scope">
+        <item>android</item>
+        <item>com.android.phone</item>
+        <item>com.android.providers.telephony</item>
+        <item>com.android.systemui</item>
+        <item>com.android.settings</item>
+        <item>org.thoughtcrime.securesms</item>
+        <item>org.torproject.android</item>
+        <item>com.pyler.nodefender</item>
+        <item>com.pyler.xprivacy</item>
+    </string-array>
+</resources>
