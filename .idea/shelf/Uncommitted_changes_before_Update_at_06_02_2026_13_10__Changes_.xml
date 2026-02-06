@@ -1,0 +1,16 @@
+<changelist name="Uncommitted_changes_before_Update_at_06_02_2026_13_10_[Changes]" date="1770379836531" recycled="false" toDelete="true">
+  <option name="PATH" value="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_06_02_2026_13_10_[Changes]/shelved.patch" />
+  <option name="DESCRIPTION" value="Uncommitted changes before Update at 06.02.2026 13:10 [Changes]" />
+  <binary>
+    <option name="AFTER_PATH" value=".idea/firebender/chat_history.db" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_06_02_2026_13_10_[Changes]/chat_history.db" />
+  </binary>
+  <binary>
+    <option name="AFTER_PATH" value=".idea/firebender/chat_history.db-shm" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_06_02_2026_13_10_[Changes]/chat_history.db-shm" />
+  </binary>
+  <binary>
+    <option name="AFTER_PATH" value=".idea/firebender/chat_history.db-wal" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_06_02_2026_13_10_[Changes]/chat_history.db-wal" />
+  </binary>
+</changelist>

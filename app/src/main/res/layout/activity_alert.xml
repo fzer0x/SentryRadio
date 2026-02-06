@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#1a1a1a">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="16dp">
+
+        <TextView
+            android:id="@+id/alertTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="SECURITY ALERT"
+            android:textSize="48sp"
+            android:textColor="#FF0000"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:layout_marginBottom="24dp" />
+
+        <TextView
+            android:id="@+id/alertDescription"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Threat Detected"
+            android:textSize="24sp"
+            android:textColor="#FFFFFF"
+            android:gravity="center"
+            android:layout_marginBottom="32dp" />
+
+        <TextView
+            android:id="@+id/alertSeverity"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="SEVERITY: 10/10"
+            android:textSize="32sp"
+            android:textColor="#FFD700"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:layout_marginBottom="48dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="⚠ IMSI CATCHER DETECTED ⚠"
+            android:textSize="20sp"
+            android:textColor="#FF6B6B"
+            android:gravity="center"
+            android:layout_marginBottom="48dp"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/dismissButton"
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:text="DISMISS ALARM"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:background="#00AA00"
+            android:textColor="#FFFFFF"
+            android:layout_weight="1"
+            android:layout_gravity="bottom" />
+
+    </LinearLayout>
+
+</FrameLayout>
