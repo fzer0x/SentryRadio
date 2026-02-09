@@ -52,7 +52,6 @@ Built for security researchers and privacy-conscious users, it provides deep ins
 
 Add your API keys in the app settings (now encrypted in Keystore):
 - [OpenCellID API Key](https://opencellid.org/)
-- [Unwired Labs Token](https://unwiredlabs.com/)
 - BeaconDB (API-Keyless)
 
 ---
