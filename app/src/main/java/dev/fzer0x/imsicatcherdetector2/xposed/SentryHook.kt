@@ -172,7 +172,7 @@ class SentryHook : IXposedHookLoadPackage {
                     val context = XposedHelpers.getObjectField(phone, "mContext") as Context
                     val simSlot = XposedHelpers.callMethod(phone, "getPhoneId") as Int
                     val ss = XposedHelpers.getObjectField(mSST, "mSS") as ServiceState
-                    
+
                     val msg = param.args[0] as Message
                     if (msg.what == 1) { // EVENT_POLL_STATE_REGISTRATION
                         val ar = msg.obj

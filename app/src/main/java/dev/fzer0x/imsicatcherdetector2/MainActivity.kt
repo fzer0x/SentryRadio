@@ -1,8 +1,15 @@
 package dev.fzer0x.imsicatcherdetector2
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -18,24 +25,10 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Canvas as ComposeCanvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -45,60 +38,11 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Place
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.BottomSheetDefaults
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CenterAlignedTopAppBar
-import androidx.compose.material3.ElevatedCard
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
-import androidx.compose.material3.TabRowDefaults
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -124,6 +68,8 @@ import dev.fzer0x.imsicatcherdetector2.data.ForensicEvent
 import dev.fzer0x.imsicatcherdetector2.service.ForensicService
 import dev.fzer0x.imsicatcherdetector2.ui.theme.IMSICatcherDetector2Theme
 import dev.fzer0x.imsicatcherdetector2.ui.viewmodel.ForensicViewModel
+import dev.fzer0x.imsicatcherdetector2.security.VulnerabilityManager
+import dev.fzer0x.imsicatcherdetector2.security.UpdateManager
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
@@ -136,6 +82,11 @@ import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
+import org.osmdroid.events.MapEventsReceiver
+import org.osmdroid.views.overlay.MapEventsOverlay
+import org.osmdroid.views.overlay.OverlayWithIW
 
 class MainActivity : ComponentActivity() {
     private val viewModel: ForensicViewModel by viewModels()
@@ -150,6 +101,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         Configuration.getInstance().userAgentValue = packageName
         checkAndRequestPermissions()
+        
+        // Update Check (GitHub Release v0.3.0)
+        UpdateManager.checkForUpdates(this, "4-0.3.0")
+        
         setContent {
             IMSICatcherDetector2Theme {
                 MainContainer(viewModel)
@@ -164,11 +119,18 @@ class MainActivity : ComponentActivity() {
             Manifest.permission.ACCESS_COARSE_LOCATION,
             Manifest.permission.RECEIVE_SMS,
             Manifest.permission.READ_SMS,
-            Manifest.permission.INTERNET
+            Manifest.permission.INTERNET,
+            Manifest.permission.ACCESS_WIFI_STATE,
+            Manifest.permission.CHANGE_WIFI_STATE
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            permissions.add(Manifest.permission.BLUETOOTH_SCAN)
+            permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
+        }
+        
         if (permissions.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }) {
             startForensicService()
         } else {
@@ -242,8 +204,7 @@ fun MainContainer(viewModel: ForensicViewModel) {
             Column {
                 // Overlay Permission Warning
                 var hasOverlayPermission by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
-                
-                // Re-check permission when resuming
+
                 val lifecycleOwner = LocalLifecycleOwner.current
                 DisposableEffect(lifecycleOwner) {
                     val observer = LifecycleEventObserver { _, event ->
@@ -336,10 +297,12 @@ fun DashboardScreen(viewModel: ForensicViewModel) {
             contentColor = Color.Cyan,
             divider = {},
             indicator = { tabPositions ->
-                TabRowDefaults.SecondaryIndicator(
-                    Modifier.tabIndicatorOffset(tabPositions[state.activeSimSlot]),
-                    color = Color.Cyan
-                )
+                if (state.activeSimSlot < tabPositions.size) {
+                    TabRowDefaults.SecondaryIndicator(
+                        Modifier.tabIndicatorOffset(tabPositions[state.activeSimSlot]),
+                        color = Color.Cyan
+                    )
+                }
             }
         ) {
             Tab(selected = state.activeSimSlot == 0, onClick = { viewModel.setActiveSimSlot(0) }) {
@@ -370,27 +333,76 @@ fun DashboardScreen(viewModel: ForensicViewModel) {
             }
 
             Spacer(Modifier.height(16.dp))
+            
+            // SYSTEM INTEGRITY CARD
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0D1F2D)),
+                border = BorderStroke(1.dp, Color.Cyan.copy(alpha = 0.3f))
+            ) {
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Build, contentDescription = null, tint = Color.Cyan, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text("SYSTEM INTEGRITY SCAN", color = Color.Cyan, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                        Text("Chipset: ${state.detectedChipset} | Baseband: ${state.detectedBaseband}", color = Color.White, fontSize = 11.sp)
+                        Text("Security Patch: ${state.securityPatch} | CVE Sync: ${state.lastCveUpdate}", color = Color.Gray, fontSize = 10.sp)
+                        Text(if(state.vulnerabilities.isEmpty()) "No known firmware vulnerabilities detected." else "Security Advisory: ${state.vulnerabilities.size} issues found!", 
+                            color = if(state.vulnerabilities.isEmpty()) Color.Green else Color.Yellow, 
+                            fontSize = 10.sp)
+                    }
+                }
+            }
+
             SignalChart(activeSim.rssiHistory)
             Spacer(Modifier.height(16.dp))
 
             AnimatedVisibility(
-                visible = state.activeThreats.isNotEmpty(),
+                visible = state.activeThreats.isNotEmpty() || state.vulnerabilities.isNotEmpty(),
                 enter = fadeIn() + expandVertically(),
                 exit = fadeOut() + shrinkVertically()
             ) {
-                Card(
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.Transparent)
-                ) {
-                    Column(Modifier.background(alertBrush).padding(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Warning, contentDescription = null, tint = Color.Red)
-                            Spacer(Modifier.width(8.dp))
-                            Text("ACTIVE THREATS DETECTED", fontWeight = FontWeight.Black, color = Color.Red, fontSize = 14.sp)
+                Column {
+                    if (state.activeThreats.isNotEmpty()) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF420000)),
+                            border = BorderStroke(1.dp, Color.Red)
+                        ) {
+                            Column(Modifier.background(alertBrush).padding(16.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Warning, contentDescription = null, tint = Color.Red)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("ACTIVE THREATS DETECTED", fontWeight = FontWeight.Black, color = Color.Red, fontSize = 14.sp)
+                                }
+                                Spacer(Modifier.height(8.dp))
+                                state.activeThreats.forEach { threat ->
+                                    Text("• $threat", color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
                         }
-                        Spacer(Modifier.height(8.dp))
-                        state.activeThreats.forEach { threat ->
-                            Text("• $threat", color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                    }
+
+                    if (state.vulnerabilities.isNotEmpty()) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF332200)),
+                            border = BorderStroke(1.dp, Color.Yellow)
+                        ) {
+                            Column(Modifier.padding(16.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Info, contentDescription = null, tint = Color.Yellow)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("MODEM VULNERABILITIES", fontWeight = FontWeight.Black, color = Color.Yellow, fontSize = 14.sp)
+                                }
+                                Spacer(Modifier.height(8.dp))
+                                state.vulnerabilities.forEach { vuln ->
+                                    Column(Modifier.padding(bottom = 8.dp)) {
+                                        Text("${vuln.cveId} (Severity: ${vuln.severity}/10)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Text(vuln.description, color = Color.Gray, fontSize = 10.sp, lineHeight = 14.sp)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -404,7 +416,7 @@ fun DashboardScreen(viewModel: ForensicViewModel) {
             }
 
             Text("RADIO STACK PARAMETERS", color = Color.Cyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
-            
+
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 MetricCard("PCI (Physical Cell ID)", activeSim.pci, Modifier.weight(1f))
                 MetricCard("EARFCN / ARFCN", activeSim.earfcn, Modifier.weight(1f))
@@ -421,7 +433,7 @@ fun DashboardScreen(viewModel: ForensicViewModel) {
                 MetricCard("Signal Power", "${activeSim.signalStrength} dBm", Modifier.weight(1f), signalColor)
                 MetricCard("Detected Neighbors", activeSim.neighborCount.toString(), Modifier.weight(1f))
             }
-            
+
             Spacer(Modifier.height(24.dp))
             Text("OPERATOR INFO", color = Color.Cyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -442,14 +454,68 @@ fun SecurityScreen(viewModel: ForensicViewModel) {
         item {
             Text("SECURITY CONTROLS", fontWeight = FontWeight.Black, color = Color.Cyan, fontSize = 18.sp)
             Spacer(Modifier.height(8.dp))
-            Text("Direct interaction with Radio/Baseband (Root required)", color = Color.Gray, fontSize = 12.sp)
+            Text("Direct interaction with Radio/Baseband", color = Color.Gray, fontSize = 12.sp)
             Spacer(Modifier.height(24.dp))
+        }
+
+        if (dashboardState.hasRoot) {
+            item {
+                Text("SNAPDRAGON MODEM TELEMETRY", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(12.dp))
+                Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFF0D1F2D))) {
+                    Column(Modifier.padding(16.dp)) {
+                        val activeSim = if(dashboardState.activeSimSlot == 0) dashboardState.sim0 else dashboardState.sim1
+                        DetailRow("Cipher Algorithm", activeSim.cipherAlgo)
+                        DetailRow("RRC Connection", activeSim.rrcStatus)
+                        DetailRow("Modem Hardening", if(dashboardState.isHardeningModuleActive) "Active" else "Inactive (Root only)")
+                    }
+                }
+                Spacer(Modifier.height(24.dp))
+
+                Text("HARDENING MODULE ACTIONS", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(12.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { viewModel.resetRadio() },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E1E1E)),
+                        border = BorderStroke(1.dp, Color.Cyan)
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.Cyan, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("RESET MODEM", color = Color.Cyan, fontSize = 10.sp)
+                    }
+                    Button(
+                        onClick = { viewModel.triggerPanic() },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF420000)),
+                        border = BorderStroke(1.dp, Color.Red)
+                    ) {
+                        Icon(Icons.Default.Warning, contentDescription = null, tint = Color.Red, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("PANIC MODE", color = Color.Red, fontSize = 10.sp)
+                    }
+                }
+                Spacer(Modifier.height(24.dp))
+            }
+        }
+
+        item {
+            SecurityOptionCard(
+                title = "Automatic Threat Mitigation",
+                subtitle = "App takes immediate action (Reset/Panic) upon high-confidence threat detection.",
+                checked = settings.autoMitigation,
+                onCheckedChange = { viewModel.updateAutoMitigation(it) },
+                icon = Icons.Default.Build,
+                iconColor = Color.Cyan
+            )
+            Spacer(Modifier.height(16.dp))
         }
 
         item {
             SecurityOptionCard(
                 title = "Block GSM Registrations",
-                subtitle = "Forcefully prevent connection to 2G/GSM networks to mitigate Downgrade Attacks.",
+                subtitle = "Forcefully prevent connection to 2G/GSM networks. (Hardware level if module active)",
                 checked = settings.blockGsm,
                 onCheckedChange = { viewModel.updateBlockGsm(it) },
                 icon = Icons.Default.Lock,
@@ -557,8 +623,8 @@ fun SignalChart(history: List<Int>) {
         Column(Modifier.padding(8.dp)) {
             Text("SIGNAL STABILITY (LIVE)", color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(4.dp))
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                if (history.isEmpty()) return@Canvas
+            ComposeCanvas(modifier = Modifier.fillMaxSize()) {
+                if (history.isEmpty()) return@ComposeCanvas
 
                 val path = Path()
                 val stepX = if (history.size > 1) size.width / (history.size - 1) else size.width
@@ -591,6 +657,7 @@ fun SignalChart(history: List<Int>) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(viewModel: ForensicViewModel) {
     val settings by viewModel.settings.collectAsState()
@@ -601,11 +668,73 @@ fun SettingsScreen(viewModel: ForensicViewModel) {
 
     LazyColumn(Modifier.fillMaxSize().padding(16.dp)) {
         item {
-            Text("SYSTEM SETTINGS", fontWeight = FontWeight.Black, color = Color.Cyan, fontSize = 18.sp)
+            Text("SYSTEM STATUS", fontWeight = FontWeight.Black, color = Color.Cyan, fontSize = 18.sp)
             Spacer(Modifier.height(16.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 StatusIndicator("ROOT", dashboardState.hasRoot, Modifier.weight(1f))
                 StatusIndicator("XPOSED", dashboardState.isXposedActive, Modifier.weight(1f))
+            }
+            Spacer(Modifier.height(8.dp))
+            StatusIndicator("HARDENING MODULE", dashboardState.isHardeningModuleActive, Modifier.fillMaxWidth())
+            Spacer(Modifier.height(24.dp))
+        }
+
+        item {
+            Text("MAGISK / KERNELSU HARDENING", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(12.dp))
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        "The Sentry Hardening Module provides deep system integration to enforce radio security and prevent IMSI Catcher attacks on the baseband level.",
+                        color = Color.Gray,
+                        fontSize = 12.sp
+                    )
+                    Spacer(Modifier.height(16.dp))
+
+                    if (dashboardState.isHardeningModuleActive) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Check, contentDescription = null, tint = Color.Green)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Module installed and active", color = Color.Green, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Button(
+                            onClick = { viewModel.installHardeningModule(context) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Gray, contentColor = Color.White)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("UPDATE / REINSTALL MODULE", fontWeight = FontWeight.Bold)
+                        }
+                    } else if (dashboardState.hasRoot) {
+                        Button(
+                            onClick = { viewModel.installHardeningModule(context) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Cyan, contentColor = Color.Black)
+                        ) {
+                            Icon(Icons.Default.Build, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("INSTALL HARDENING MODULE", fontWeight = FontWeight.Bold)
+                        }
+                        Text(
+                            "Note: A reboot is required after installation.",
+                            color = Color.Yellow.copy(alpha = 0.7f),
+                            fontSize = 10.sp,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    } else {
+                        Text(
+                            "Root access required to install the Hardening Module.",
+                            color = Color.Red.copy(alpha = 0.7f),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
             }
             Spacer(Modifier.height(24.dp))
         }
@@ -613,49 +742,36 @@ fun SettingsScreen(viewModel: ForensicViewModel) {
         item {
             Text("API CONFIGURATION", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(16.dp))
-            
+
+            // BEACON DB
             SettingsRow("BeaconDB (No Key)", "Public crowdsourced database", settings.useBeaconDb) {
                 viewModel.updateUseBeaconDb(it)
             }
+            
             Spacer(Modifier.height(16.dp))
-
-            SettingsRow("OpenCellID", "World's largest open cell database", settings.useOpenCellId) {
+            
+            // OPEN CELL ID
+            SettingsRow("OpenCellID API", "Required for Area Scans", settings.useOpenCellId) {
                 viewModel.updateUseOpenCellId(it)
             }
-            OutlinedTextField(
-                value = settings.openCellIdKey,
-                onValueChange = { viewModel.updateOpenCellIdKey(it) },
-                label = { Text("OpenCellID API Key") },
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                singleLine = true,
-                enabled = settings.useOpenCellId,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    focusedBorderColor = Color.Cyan,
-                    unfocusedBorderColor = Color.Gray
+            if (settings.useOpenCellId) {
+                TextField(
+                    value = settings.openCellIdKey,
+                    onValueChange = { viewModel.updateOpenCellIdKey(it) },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    label = { Text("OpenCellID API Key") },
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color(0xFF1E1E1E),
+                        unfocusedContainerColor = Color(0xFF121212),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.Gray
+                    ),
+                    singleLine = true
                 )
-            )
-            Spacer(Modifier.height(16.dp))
-
-            SettingsRow("Unwired Labs", "Precise cell geolocation API", settings.useUnwiredLabs) {
-                viewModel.updateUseUnwiredLabs(it)
             }
-            OutlinedTextField(
-                value = settings.unwiredLabsKey,
-                onValueChange = { viewModel.updateUnwiredLabsKey(it) },
-                label = { Text("Unwired Labs API Key") },
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                singleLine = true,
-                enabled = settings.useUnwiredLabs,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    focusedBorderColor = Color.Cyan,
-                    unfocusedBorderColor = Color.Gray
-                )
-            )
-            Text("API keys required for live verification.", color = Color.Gray, fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp))
+
+            Spacer(Modifier.height(16.dp))
+            Text("Using OpenCellID allows the app to populate the map with known towers in your current area.", color = Color.Gray, fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp))
             Spacer(Modifier.height(24.dp))
         }
 
@@ -725,14 +841,14 @@ fun SettingsScreen(viewModel: ForensicViewModel) {
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "Developer: fzer0x | Version: 0.2.1-beta",
+                    text = "Developer: fzer0x | Version: 0.3.0",
                     color = Color.Gray,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium
                 )
-                
+
                 Spacer(Modifier.height(12.dp))
-                
+
                 Surface(
                     onClick = {
                         try {
@@ -759,7 +875,7 @@ fun SettingsScreen(viewModel: ForensicViewModel) {
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "Buy Me a Coffee (Bitcoin)",
+                            "Buy Me a Beer (Bitcoin)",
                             color = Color.White,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
@@ -818,11 +934,47 @@ fun MapForensicScreen(viewModel: ForensicViewModel) {
         }
     }
 
+    val locationProvider = remember { GpsMyLocationProvider(context) }
+    val locationOverlay = remember {
+        object : MyLocationNewOverlay(locationProvider, mapView) {
+            override fun onSingleTapConfirmed(e: android.view.MotionEvent, mapView: MapView): Boolean {
+                viewModellessMarkerClose(mapView)
+                return false 
+            }
+        }.apply {
+            enableMyLocation()
+        }
+    }
+
+    // Restore last state or center on current location
+    LaunchedEffect(mapView) {
+        val lastState = viewModel.getLastMapState()
+        if (lastState != null) {
+            mapView.controller.setCenter(GeoPoint(lastState.first, lastState.second))
+            mapView.controller.setZoom(lastState.third)
+        } else {
+            val currentLoc = viewModel.getFreshLocation()
+            if (currentLoc != null) {
+                mapView.controller.setCenter(GeoPoint(currentLoc.latitude, currentLoc.longitude))
+                mapView.controller.setZoom(15.0)
+            }
+        }
+    }
+
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> mapView.onResume()
-                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                Lifecycle.Event.ON_RESUME -> {
+                    mapView.onResume()
+                    locationOverlay.enableMyLocation()
+                }
+                Lifecycle.Event.ON_PAUSE -> {
+                    // Save state
+                    val center = mapView.mapCenter
+                    viewModel.saveMapState(center.latitude, center.longitude, mapView.zoomLevelDouble)
+                    mapView.onPause()
+                    locationOverlay.disableMyLocation()
+                }
                 else -> {}
             }
         }
@@ -835,103 +987,71 @@ fun MapForensicScreen(viewModel: ForensicViewModel) {
 
     Box(Modifier.fillMaxSize()) {
         AndroidView(
-            factory = { mapView },
+            factory = {
+                if (mapView.overlays.none { it is MyLocationNewOverlay }) {
+                    mapView.overlays.add(locationOverlay)
+                }
+                // Add events overlay to handle map clicks and prevent empty bubbles
+                val mapEventsOverlay = MapEventsOverlay(object : MapEventsReceiver {
+                    override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean {
+                        // Close all open info windows when tapping on empty map
+                        viewModellessMarkerClose(mapView)
+                        return true
+                    }
+                    override fun longPressHelper(p: GeoPoint?): Boolean = false
+                })
+                mapView.overlays.add(0, mapEventsOverlay)
+                mapView
+            },
             modifier = Modifier.fillMaxSize(),
             update = { view ->
+                // Remove markers/polygons but keep location and events overlay
                 view.overlays.removeAll { it is Marker || it is Polyline || it is Polygon }
-
-                val points = mutableListOf<GeoPoint>()
+                
                 towers.filter { it.latitude != null && it.longitude != null }
-                    .sortedBy { it.firstSeen }
                     .forEach { tower ->
                         val point = GeoPoint(tower.latitude!!, tower.longitude!!)
-                        points.add(point)
+
+                        val ratColor = when {
+                            tower.rat.contains("LTE", true) -> android.graphics.Color.BLUE
+                            tower.rat.contains("NR", true) || tower.rat.contains("5G", true) -> android.graphics.Color.MAGENTA
+                            tower.rat.contains("UMTS", true) || tower.rat.contains("WCDMA", true) -> android.graphics.Color.GREEN
+                            else -> android.graphics.Color.YELLOW
+                        }
 
                         tower.range?.let { r ->
                             val circle = Polygon(view)
                             circle.points = Polygon.pointsAsCircle(point, r)
-                            
-                            val isFake = tower.isMissingInDb && settings.markFakeCells
-                            
-                            val color = when {
-                                tower.isBlocked -> android.graphics.Color.argb(80, 50, 50, 50) 
-                                isFake -> android.graphics.Color.argb(120, 255, 0, 0) 
-                                tower.isMissingInDb -> android.graphics.Color.argb(80, 255, 0, 0) 
-                                tower.changeable == false -> android.graphics.Color.argb(40, 0, 255, 0) 
-                                tower.isVerified -> android.graphics.Color.argb(40, 0, 255, 255) 
-                                else -> android.graphics.Color.argb(40, 255, 255, 0) 
-                            }
-                            circle.fillPaint.color = color
-                            circle.outlinePaint.color = color
-                            circle.outlinePaint.strokeWidth = if(isFake) 5f else 2f
-                            
-                            circle.setOnClickListener { _, _, _ -> true }
-                            
+                            val alpha = if (tower.isMissingInDb) 100 else 40
+                            circle.fillPaint.color = Color(ratColor).copy(alpha = alpha / 255f).toArgb()
+                            circle.outlinePaint.color = ratColor
+                            circle.outlinePaint.strokeWidth = if(tower.isMissingInDb) 5f else 2f
+                            circle.infoWindow = null 
+                            // Consuming the click without bubble
+                            circle.setOnClickListener { _, _, _ -> 
+                                viewModellessMarkerClose(view)
+                                true 
+                            } 
                             view.overlays.add(circle)
                         }
 
                         val marker = Marker(view)
                         marker.position = point
-                        
-                        val isFake = tower.isMissingInDb && settings.markFakeCells
-                        marker.title = (if(isFake) "⚠ FAKE CELL: " else "Cell ID: ") + tower.cellId + (if(tower.isBlocked) " (BLOCKED)" else "")
-
-                        val verificationType = when {
-                            tower.isBlocked -> "ADMIN: BLOCKED"
-                            isFake -> "CRITICAL: SUSPECTED IMSI CATCHER"
-                            tower.isMissingInDb -> "CRITICAL: NOT IN DATABASE"
-                            tower.isVerified && tower.changeable == false -> "PRECISE (DB)"
-                            tower.isVerified -> "CALCULATED (DB)"
-                            else -> "APPROX (GPS)"
-                        }
-
+                        marker.title = "Cell ID: ${tower.cellId}"
                         marker.snippet = """
-                            Type: ${tower.rat}
+                            RAT: ${tower.rat}
                             MCC/MNC: ${tower.mcc}/${tower.mnc}
                             LAC/TAC: ${tower.lac}
-                            Verification: $verificationType
-                            Range: ${tower.range?.toInt() ?: "N/A"}m
-                            Samples: ${tower.samples ?: "N/A"}
+                            PCI: ${tower.pci ?: "N/A"}
+                            TA: ${tower.ta ?: "N/A"}
+                            Signal: ${tower.dbm ?: "N/A"} dBm
+                            Verification: ${if(tower.isVerified) "Verified (${tower.source})" else "Local GPS"}
                         """.trimIndent()
 
-                        val iconRes = when {
-                            tower.isBlocked -> android.R.drawable.ic_lock_power_off
-                            isFake -> android.R.drawable.ic_dialog_alert
-                            tower.isMissingInDb -> android.R.drawable.ic_delete 
-                            tower.isVerified && tower.changeable == false -> android.R.drawable.ic_dialog_map 
-                            tower.isVerified -> android.R.drawable.ic_menu_mylocation 
-                            else -> android.R.drawable.presence_invisible 
-                        }
-
-                        marker.icon = ContextCompat.getDrawable(context, iconRes)
+                        marker.icon = createTowerIcon(context, ratColor, tower.isMissingInDb)
                         marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                        
-                        marker.setOnMarkerClickListener { m, _ ->
-                            if (!m.title.isNullOrBlank()) {
-                                m.showInfoWindow()
-                            }
-                            true
-                        }
-                        
                         view.overlays.add(marker)
                     }
-
-                if (points.size >= 2) {
-                    val line = Polyline(view)
-                    line.setPoints(points)
-                    line.outlinePaint.color = android.graphics.Color.CYAN
-                    line.outlinePaint.strokeWidth = 5f
-                    line.setOnClickListener { _, _, _ -> true }
-                    view.overlays.add(line)
-                }
-
-                if (view.overlays.none { it is MyLocationNewOverlay }) {
-                    val locationOverlay = MyLocationNewOverlay(GpsMyLocationProvider(context), view)
-                    locationOverlay.enableMyLocation()
-                    locationOverlay.enableFollowLocation()
-                    view.overlays.add(locationOverlay)
-                }
-
                 view.invalidate()
             }
         )
@@ -943,7 +1063,6 @@ fun MapForensicScreen(viewModel: ForensicViewModel) {
             FloatingActionButton(
                 onClick = {
                     viewModel.refreshTowerLocations()
-                    Toast.makeText(context, "Scanning for tower locations...", Toast.LENGTH_SHORT).show()
                 },
                 containerColor = Color.Yellow,
                 contentColor = Color.Black
@@ -953,14 +1072,40 @@ fun MapForensicScreen(viewModel: ForensicViewModel) {
 
             FloatingActionButton(
                 onClick = {
-                    val locationOverlay = mapView.overlays.filterIsInstance<MyLocationNewOverlay>().firstOrNull()
-                    locationOverlay?.myLocation?.let { geoPoint ->
-                        mapView.controller.animateTo(geoPoint)
+                    val location = locationOverlay.myLocation
+                    if (location != null) {
+                        mapView.controller.animateTo(location)
                         mapView.controller.setZoom(18.0)
-                    } ?: run {
-                        towers.firstOrNull { it.latitude != null }?.let { t ->
-                            mapView.controller.animateTo(GeoPoint(t.latitude!!, t.longitude!!))
-                            mapView.controller.setZoom(15.0)
+                    } else {
+                        // FORCE LOCATION UPDATE
+                        val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+                        val listener = object : android.location.LocationListener {
+                            override fun onLocationChanged(loc: Location) {
+                                mapView.controller.animateTo(GeoPoint(loc.latitude, loc.longitude))
+                                mapView.controller.setZoom(18.0)
+                                lm.removeUpdates(this)
+                            }
+                            override fun onStatusChanged(p: String?, s: Int, e: Bundle?) {}
+                            override fun onProviderEnabled(p: String) {}
+                            override fun onProviderDisabled(p: String) {}
+                        }
+                        
+                        try {
+                            val providers = lm.getProviders(true)
+                            for (provider in providers) {
+                                lm.requestLocationUpdates(provider, 0L, 0f, listener)
+                            }
+                            
+                            val lastLoc = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER) 
+                                       ?: lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+                            if (lastLoc != null) {
+                                mapView.controller.animateTo(GeoPoint(lastLoc.latitude, lastLoc.longitude))
+                                mapView.controller.setZoom(18.0)
+                            } else {
+                                Toast.makeText(context, "Locating... Please wait for GPS.", Toast.LENGTH_LONG).show()
+                            }
+                        } catch (e: SecurityException) {
+                            Toast.makeText(context, "Permission Error", Toast.LENGTH_SHORT).show()
                         }
                     }
                 },
@@ -972,6 +1117,44 @@ fun MapForensicScreen(viewModel: ForensicViewModel) {
         }
     }
 }
+
+private fun viewModellessMarkerClose(mapView: MapView) {
+    mapView.overlays.forEach {
+        if (it is OverlayWithIW) {
+            it.closeInfoWindow()
+        }
+    }
+}
+
+private fun createTowerIcon(context: android.content.Context, color: Int, isWarning: Boolean): Drawable {
+    val size = 40
+    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val paint = Paint()
+    
+    // Shadow
+    paint.color = android.graphics.Color.BLACK
+    paint.alpha = 100
+    canvas.drawCircle(size / 2f + 2, size / 2f + 2, size / 3f, paint)
+    
+    // Main Circle
+    paint.alpha = 255
+    paint.color = color
+    canvas.drawCircle(size / 2f, size / 2f, size / 3f, paint)
+    
+    // Warning dot
+    if (isWarning) {
+        paint.color = android.graphics.Color.RED
+        canvas.drawCircle(size / 2f, size / 2f, size / 6f, paint)
+    }
+    
+    return BitmapDrawable(context.resources, bitmap)
+}
+
+private fun Color.toArgb(): Int = (alpha * 255.0f + 0.5f).toInt() shl 24 or
+        ((red * 255.0f + 0.5f).toInt() shl 16) or
+        ((green * 255.0f + 0.5f).toInt() shl 8) or
+        (blue * 255.0f + 0.5f).toInt()
 
 @Composable
 fun ThreatGauge(level: Int, status: String) {
@@ -1008,10 +1191,12 @@ fun AdvancedAnalyticsScreen(viewModel: ForensicViewModel) {
             contentColor = Color.Cyan,
             divider = {},
             indicator = { tabPositions ->
-                TabRowDefaults.SecondaryIndicator(
-                    Modifier.tabIndicatorOffset(tabPositions[state.activeSimSlot]),
-                    color = Color.Cyan
-                )
+                if (state.activeSimSlot < tabPositions.size) {
+                    TabRowDefaults.SecondaryIndicator(
+                        Modifier.tabIndicatorOffset(tabPositions[state.activeSimSlot]),
+                        color = Color.Cyan
+                    )
+                }
             }
         ) {
             Tab(selected = state.activeSimSlot == 0, onClick = { viewModel.setActiveSimSlot(0) }) {
@@ -1027,7 +1212,7 @@ fun AdvancedAnalyticsScreen(viewModel: ForensicViewModel) {
         Column(Modifier.padding(16.dp)) {
             Text("THREAT OVERVIEW", color = Color.Cyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
             ThreatSummaryCard(simLogs)
-            
+
             Spacer(Modifier.height(24.dp))
 
             val simBlockingEvents = blockingEvents.filter { it.simSlot == state.activeSimSlot }
@@ -1041,17 +1226,17 @@ fun AdvancedAnalyticsScreen(viewModel: ForensicViewModel) {
             SignalAnalysisCard(simLogs)
             Spacer(Modifier.height(12.dp))
             BasebandAnalysisCard(simLogs)
-            
+
             Spacer(Modifier.height(24.dp))
             Text("PROTOCOL & MOBILITY", color = Color.Cyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
             RrcStateAnalysisCard(simLogs)
             Spacer(Modifier.height(12.dp))
             HandoverAnalysisCard(simLogs)
-            
+
             Spacer(Modifier.height(24.dp))
             Text("NETWORK INTEGRITY", color = Color.Cyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
             NetworkCapabilityCard(simLogs)
-            
+
             Spacer(Modifier.height(32.dp))
         }
     }
@@ -1110,7 +1295,7 @@ fun BlockingSuccessCard(blockingEvents: List<dev.fzer0x.imsicatcherdetector2.ser
         Column(Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Check, contentDescription = null, tint = successColor, modifier = Modifier.size(24.dp))
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(8.dp))
                 Text("THREATS SUCCESSFULLY BLOCKED", color = successColor, fontWeight = FontWeight.Bold, fontSize = 14.sp)
             }
 
@@ -1421,7 +1606,7 @@ fun TimelineScreen(viewModel: ForensicViewModel, onEventClick: (ForensicEvent) -
                         )
                     },
                     supportingContent = { Text("SIM ${log.simSlot + 1} • ${log.type} • ${dateFormat.format(Date(log.timestamp))}", color = Color.Gray) },
-                    trailingContent = { 
+                    trailingContent = {
                         Icon(
                             imageVector = when {
                                 isBlocked -> Icons.Default.Lock
@@ -1449,11 +1634,11 @@ fun ForensicDetailView(event: ForensicEvent, viewModel: ForensicViewModel) {
     val scrollState = rememberScrollState()
     val blockedIds by viewModel.blockedCellIds.collectAsState()
     val isBlocked = event.cellId != null && blockedIds.contains(event.cellId)
-    
+
     Column(Modifier.fillMaxWidth().verticalScroll(scrollState).padding(24.dp).navigationBarsPadding()) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Detailed Analysis", style = MaterialTheme.typography.headlineSmall, color = Color.Cyan, fontWeight = FontWeight.Bold)
-            
+
             if (event.cellId != null) {
                 Button(
                     onClick = { viewModel.toggleBlockCell(event.cellId) },

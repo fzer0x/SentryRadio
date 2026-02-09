@@ -1,0 +1,21 @@
+# Sentry Radio Hardening - Qualcomm/Snapdragon Telemetry & Hardening v1.2
+
+# Force more secure network selection behavior
+telephony.lteOnCdmaDevice=1
+persist.radio.rat_on=combine
+persist.radio.data_con_recovery=true
+
+# Qualcomm-specific Security Hardening
+persist.vendor.radio.ignore_dom_nw_roam=true
+persist.vendor.radio.force_get_ims_status=true
+persist.vendor.radio.uicc_se_enabled=false
+persist.vendor.radio.at_command_interface=0
+
+# Ciphering & Protocol Telemetry (Snapdragon specific)
+persist.vendor.radio.report_cipher_details=1
+persist.vendor.radio.snapshot_enabled=1
+persist.vendor.radio.relay_op_info=1
+
+# General Privacy
+ro.telephony.call_ring.multiple=false
+persist.debug.wfd.enable=0

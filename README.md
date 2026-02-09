@@ -4,30 +4,31 @@
 
 Built for security researchers and privacy-conscious users, it provides deep insights into the radio stack, monitoring both SIM slots in real-time.
 
-**Version 0.2.0 - Now with enhanced security hardening and API protection.**
+**Version 0.3.0-beta - Now with dynamic CVE intelligence and system-level hardening via Magisk/KSU.**
 
 ---
 
 ## 🚀 Key Features
 
+- **🛡️ Dynamic CVE Intelligence:** Fetches real-time modem vulnerabilities from the NIST NVD API, replacing the static, hardcoded list.
+- **🛠️ System-Level Hardening (Magisk/KSU):** Optional module enforces secure radio parameters directly on the baseband level.
 - **🛡️ Real-time Threat Detection:** Monitors for encryption deactivation, silent SMS, and suspicious cell handovers.
 - **🚨 Full-screen Overlay Alarms:** Critical alerts now appear over all apps and on the lock screen for immediate notification.
 - **📊 Advanced Radio Metrics:** Tracks PCI, EARFCN, Signal Strength (RSSI/RSRP), Timing Advance, and Neighboring cells.
 - **🌐 Forensic Mapping:** Visualize detected cell towers and your movement on an offline-capable map using OSMDroid.
 - **📡 Dual SIM Support:** Full monitoring for multi-slot devices.
 - **🔍 Database Verification:** Cross-references cell data with OpenCellID, Unwired Labs, and BeaconDB to identify "fake" towers.
-- **🛠️ Root-Powered Monitoring:** Utilizes root access to sniff the radio logcat and execute low-level telephony dumps.
 - **💾 PCAP Export:** Export radio events to GSMTAP-compatible PCAP files for further analysis in Wireshark.
 - **🔐 Encrypted Credentials:** API keys and sensitive data now encrypted with AES-256-GCM in Android Keystore.
 - **📍 Certificate Pinning:** All API connections protected against MITM attacks with public key pinning.
-- **🛡️ Input Validation:** Comprehensive protection against injection and malformed data attacks.
 
 ---
 
 ## 🛠️ Requirements
 
 - **Android 10 (API 29) or higher.**
-- **Root Access:** Required for deep radio logcat monitoring and low-level diagnostic data.
+- **Root Access:** Required for deep radio logcat monitoring and installing the hardening module.
+- **(Recommended) Magisk or KernelSU:** For installing the Sentry Radio Hardening module.
 - **(Optional) Xposed/LSPosed:** For enhanced API hooking and stealth.
 - **Permission:** "Display over other apps" (SYSTEM_ALERT_WINDOW) for full-screen alarm overlays.
 
@@ -43,6 +44,7 @@ Built for security researchers and privacy-conscious users, it provides deep ins
 3. Install the APK on your rooted device.
 4. Grant Root/Superuser permissions when prompted.
 5. **Enable "Display over other apps"** in the app settings to allow full-screen alarms.
+6. (Recommended) Go to the **'Settings'** tab and install the **Sentry Hardening Module** for system-level protection.
 
 ---
 
@@ -53,38 +55,20 @@ Add your API keys in the app settings (now encrypted in Keystore):
 - [Unwired Labs Token](https://unwiredlabs.com/)
 - BeaconDB (API-Keyless)
 
-**v0.2.0:** API keys are automatically encrypted with AES-256-GCM.
-
 ---
 
-## 🛡️ Security (v0.2.0)
+## 🛡️ Security (v0.3.0)
 
 Sentry Radio now includes better security hardening:
 
+- **Dynamic CVE Scanning:** Live vulnerability checks against the NIST NVD database.
+- **System-Level Hardening Module:** An optional Magisk/KSU module provides deep system integration to enforce radio security policies.
 - **API Key Encryption:** AES-256-GCM encryption in Android Keystore
 - **Certificate Pinning:** Public key pinning prevents MITM attacks on all APIs
 - **Input Validation:** All data validated before processing
 - **Full-screen Overlay Alarms:** Critical security alerts are displayed over other apps and on the lock screen.
 - **Safe Root Execution:** Commands executed with timeout and resource limits
 - **Audit Logging:** Security events logged for forensic analysis
-- **Thread-Safe Code:** Race conditions eliminated, memory leaks fixed
-
----
-
-## 🔐 Security Tab (v0.2.0)
-
-New interactive security controls in dedicated Security tab:
-
-- **Block GSM Registrations:** Forcefully prevent connections to 2G/GSM networks to mitigate downgrade attacks. When enabled, GSM registration attempts are rejected and the device is kept on LTE/5G.
-
-- **Reject A5/0 Cipher:** Reject connections if the network requests A5/0 (No Encryption). If detected, the app forces a radio cycle to break the unencrypted connection and reconnect with ciphering enabled.
-
-- **Threats Blocked Dashboard:** Shows real-time count of successfully blocked attacks with detailed logs:
-  - GSM Downgrade attempts blocked
-  - A5/0 (unencrypted) connections blocked
-  - Silent SMS (Type-0) attempts detected
-
-- **Blocking Events Log:** Complete history of blocked security threats with timestamps and severity levels. Includes options to unblock cells or clear logs.
 
 ---
 
@@ -93,77 +77,43 @@ New interactive security controls in dedicated Security tab:
 Sentry Radio features a comprehensive tabbed interface:
 
 ### 1. **Status Tab** - Real-time Dashboard
-- Live threat detection with color-coded severity levels
-- SIM slot switching (Dual SIM support)
-- Root access status indicator
-- Real-time metrics: Signal strength, Timing Advance, Neighbor cell count
-- Threat gauge showing overall risk level
+- **System Integrity Scan** with CVE database sync status and device's Android Security Patch level.
+- Live threat detection with color-coded severity levels.
+- SIM slot switching (Dual SIM support).
+- Real-time metrics: Signal strength, Timing Advance, Neighbor cell count.
+- Threat gauge showing overall risk level.
 
 ### 2. **Map Tab** - Forensic Mapping
-- Interactive offline map (OSMDroid) showing all detected cell towers
-- Cell tower markers with color-coded status:
-  - 🟢 Verified towers in database
-  - 🟡 Towers with variable location data
-  - 🔴 Missing/fake towers not in database
-  - 🔒 Blocked towers
-- Auto-sync with API databases (BeaconDB, OpenCellID, UnwiredLabs)
-- Zoom to current location or first detected tower
-- Tower details on click (coordinates, samples, range, etc.)
+- **Improved User Experience:** Map state (zoom/center) is now saved. Automatically centers on your location on first use. Fixed empty pop-ups.
+- Interactive offline map (OSMDroid) showing all detected cell towers.
+- Cell tower markers with color-coded status.
+- Auto-sync with API databases (BeaconDB, OpenCellID, UnwiredLabs).
+- Tower details on click (coordinates, samples, range, etc.).
 
 ### 3. **Audit Tab** - Event Timeline & History
-- Complete chronological log of all detected threats
-- Filter by SIM slot
-- Click events for detailed analysis
-- Color-coded event types (IMSI Catcher, Silent SMS, Downgrade, etc.)
-- Includes raw logcat captures for forensic analysis
-- Block/Unblock cells directly from event view
-- Copy raw data to clipboard
+- Complete chronological log of all detected threats.
+- Filter by SIM slot.
+- Click events for detailed analysis.
+- Color-coded event types (IMSI Catcher, Silent SMS, Downgrade, etc.).
+- Includes raw logcat captures for forensic analysis.
 
 ### 4. **Security Tab** - Active Defense Controls
-- **Block GSM Registrations** - Prevent 2G/GSM network downgrades
-- **Reject A5/0 Cipher** - Block unencrypted connections
-- **Threats Blocked Dashboard** - Real-time statistics of blocked attacks
-- **Blocking Events Log** - Full history of security actions taken
-- Unblock All / Delete Blocked buttons
+- **Block GSM Registrations** - Prevent 2G/GSM network downgrades.
+- **Reject A5/0 Cipher** - Block unencrypted connections.
+- **Threats Blocked Dashboard** - Real-time statistics of blocked attacks.
+- **Blocking Events Log** - Full history of security actions taken.
 
 ### 5. **Analytics Tab** - Advanced Threat Analysis
-- **Threat Summary** - Counts by type (signal, baseband, RRC, handover)
-- **Handover Analysis** - Total handovers, anomalies, ping-pong events
-- **Network Capability Analysis** - Network degradation detection
-- **Signal Anomaly Detection** - Unrealistic signal jumps and interference
+- **Threat Summary** - Counts by type (signal, baseband, RRC, handover).
+- **Handover Analysis** - Total handovers, anomalies, ping-pong events.
+- **Network Capability Analysis** - Network degradation detection.
+- **Signal Anomaly Detection** - Unrealistic signal jumps and interference.
 
 ### 6. **Settings Tab** - Configuration & Logging Control
-- **Database Settings:** API keys for OpenCellID, Unwired Labs, BeaconDB
-- **Detection Sensitivity:** Slider to adjust threat detection threshold
-- **Mark Fake Cells:** Flag unverified towers as suspicious
-- **Logging Options:**
-  - Log Radio Metrics (signal, timing advance, etc.)
-  - Log Suspicious Events (IMSI Catcher alerts)
-  - Log Root Signal Feed (low-level modem data)
-  - Show Blocked Events (forensic history)
-- **Alarm Control:** Enable/disable vibration alerts
-
----
-
-## 💾 Export & Analysis Features
-
-- **PCAP Export:** Export all detected events in GSMTAP-compatible PCAP format for analysis in Wireshark
-- **Forensic Copy:** Copy raw logcat captures to clipboard for external analysis
-- **Clear Logs:** Delete all event history when needed
-
-## 🔄 API Integration
-
-Live database verification against multiple cell tower databases:
-
-- **BeaconDB:** Open-source cell tower database (API-Keyless option available)
-- **OpenCellID:** Global cell tower database with crowdsourced data
-- **Unwired Labs:** Commercial geolocation service with high accuracy
-
-All API communications are now protected with:
-- Certificate pinning to prevent MITM attacks
-- Encrypted credentials in Android Keystore
-- Request timeouts and rate limiting
-- Comprehensive audit logging of all API calls
+- **Magisk/KSU Hardening Module:** Install or update the system-level security module.
+- **Database Settings:** API keys for OpenCellID, Unwired Labs, BeaconDB.
+- **Detection Sensitivity:** Slider to adjust threat detection threshold.
+- **Logging Options & Alarm Control.**
 
 ---
 
@@ -173,21 +123,13 @@ Sentry Radio analyzes several layers of the cellular protocol:
 - **Physical Layer:** Unrealistic signal jumps or timing advance values.
 - **Protocol Layer:** RRC state transitions and Location Update Rejects.
 - **Security Layer:** Monitoring for Ciphering indicator (A5/0) and silent paging.
-- **Baseband Layer:** Fingerprinting of known vulnerable modem firmware.
+- **Baseband Layer:** Live fingerprinting against the NIST NVD database for known modem vulnerabilities (Qualcomm, MediaTek, Exynos) based on device chipset and patch level.
 
 ---
 
 ## 🤝 Contributing
 
 Contributions are welcome! For major changes, please open an issue first.
-
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-**Security Issues:** Please report security vulnerabilities responsibly, not via public issues.
 
 ---
 
@@ -199,25 +141,40 @@ Distributed under the GNU GPL v3 License. See `LICENSE` for more information.
 
 ## 📝 Changelog
 
-**v0.2.0** (February 2026)
+**v0.3.0-beta** (Current Release)
+- **Deep System Hardening (Magisk/KSU Module):**
+  - Introduced the Sentry Radio Hardening Module for Magisk and KernelSU.
+  - Enforces secure modem parameters at the system level (e.g., disables insecure network fallbacks).
+  - Provides a low-level interface (`sentry-ctl`) for direct modem interaction.
+- **Dynamic CVE Vulnerability Management:**
+  - Replaced static vulnerability list with live NVD API v2.0 fetching for up-to-the-minute modem CVEs.
+  - Implemented intelligent matching for device chipsets (Qualcomm, MediaTek, Exynos) against the CVE database.
+  - Added a local Room cache for offline vulnerability scanning.
+- **Enhanced Forensic Mapping Experience:**
+  - Map state (position and zoom) is now saved and restored automatically.
+  - The map now intelligently centers on the user's location on first launch or when no state is saved.
+  - UI-Fix: Fixed a bug causing empty pop-up bubbles; info windows now only appear for cell tower markers.
+- **System Integrity Dashboard Upgrade:**
+  - Added Android Security Patch level to the System Integrity Scan card.
+  - Added the timestamp of the last CVE database sync for transparency.
+- **Stability & API Fixes:**
+  - Repaired and optimized API communication for OpenCellID and BeaconDB.
+  - Enhanced Xposed module hooks for better compatibility with modern Android versions.
+
+**v0.2.1-beta**
 - Added security hardening (8 new security modules)
-- **Full-screen Overlay Alarms** (requires SYSTEM_ALERT_WINDOW permission)
+- Full-screen Overlay Alarms (requires SYSTEM_ALERT_WINDOW permission)
 - Certificate pinning for all APIs
 - AES-256-GCM encryption for API keys in Keystore
 - Input validation framework
 - Comprehensive audit logging
 - Memory leak prevention
 - Thread-safe operations
-- **New Security Tab with active threat blocking:**
-  - Block GSM Registrations (prevents 2G downgrade attacks)
-  - Reject A5/0 Cipher (blocks unencrypted connections)
-  - Threats Blocked Dashboard (real-time blocking statistics)
-  - Blocking Events Log (detailed forensic history)
-
-**v0.1.0** (Initial Release)
-- Basic IMSI Catcher detection
-- Real-time threat monitoring
-- Forensic mapping
+- New Security Tab with active threat blocking:
+    - Block GSM Registrations (prevents 2G downgrade attacks)
+    - Reject A5/0 Cipher (blocks unencrypted connections)
+    - Threats Blocked Dashboard (real-time blocking statistics)
+    - Blocking Events Log (detailed forensic history)
 
 ---
 

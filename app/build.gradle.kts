@@ -13,8 +13,8 @@ android {
         applicationId = "dev.fzer0x.imsicatcherdetector2"
         minSdk = 29
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.2.1"
+        versionCode = 4
+        versionName = "0.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -63,8 +63,15 @@ dependencies {
     // SECURITY: Network Security Configuration
     implementation("androidx.work:work-runtime-ktx:2.9.0")
 
+    // GOOGLE PLAY SERVICES: Location
+    implementation(libs.google.play.services.location)
+
     // SECURITY: Kotlin Coroutines for safe async operations
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+
+    // ROOT ACCESS: libsu for stable shell management
+    implementation(libs.libsu.core)
+    implementation(libs.libsu.io)
 
     compileOnly(libs.xposed.api)
 

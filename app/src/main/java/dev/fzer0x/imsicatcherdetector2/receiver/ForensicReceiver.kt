@@ -24,6 +24,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.*
 
 class ForensicReceiver : BroadcastReceiver() {
 
@@ -42,23 +43,10 @@ class ForensicReceiver : BroadcastReceiver() {
         val descriptionStr = intent.getStringExtra("description") ?: ""
         val cellId = intent.getStringExtra("cellId")
         val simSlot = intent.getIntExtra("simSlot", 0)
+        val isNeighbor = intent.getBooleanExtra("isNeighbor", false)
 
-        Log.d(TAG, "onReceive: eventType=$eventTypeStr, cellId=$cellId, simSlot=$simSlot")
-
-        // SECURITY: Input Validation
-        if (!InputValidator.validateSimSlot(simSlot)) {
-            Log.w(TAG, "REJECTED: Invalid SIM slot: $simSlot")
-            return
-        }
-        if (!InputValidator.validateDescription(descriptionStr)) {
-            Log.w(TAG, "REJECTED: Invalid description")
-            return
-        }
-        // Minimal valid cellId check for debugging
-        if (cellId != null && cellId.isBlank()) {
-             Log.w(TAG, "REJECTED: Blank cellId")
-             return
-        }
+        if (!InputValidator.validateSimSlot(simSlot)) return
+        if (cellId != null && cellId.isBlank()) return
 
         val eventType = try { EventType.valueOf(eventTypeStr) } catch(e: Exception) {
             when(eventTypeStr) {
@@ -67,198 +55,151 @@ class ForensicReceiver : BroadcastReceiver() {
                 "RADIO_METRICS_UPDATE" -> EventType.RADIO_METRICS_UPDATE
                 "CELL_DOWNGRADE" -> EventType.CELL_DOWNGRADE
                 "SILENT_SMS" -> EventType.SILENT_SMS
-                "LOCATION_ANOMALY" -> EventType.IMSI_CATCHER_ALERT
+                "LOCATION_ANOMALY" -> EventType.LOCATION_ANOMALY
                 "TIMING_ADVANCE_ANOMALY" -> EventType.TIMING_ADVANCE_ANOMALY
-                else -> {
-                    Log.w(TAG, "REJECTED: Unknown event type: $eventTypeStr")
-                    return
-                }
+                "HYBRID_ATTACK_SUSPECTED" -> EventType.IMSI_CATCHER_ALERT
+                else -> return
             }
         }
 
         val mcc = intent.getStringExtra("mcc")
         val mnc = intent.getStringExtra("mnc")
-
         val lac = if (intent.hasExtra("lac")) intent.getIntExtra("lac", -1).let { if (it == -1) null else it } else null
         val tac = if (intent.hasExtra("tac")) intent.getIntExtra("tac", -1).let { if (it == -1) null else it } else null
         val pci = if (intent.hasExtra("pci")) intent.getIntExtra("pci", -1).let { if (it == -1) null else it } else null
-        val earfcn = if (intent.hasExtra("earfcn")) intent.getIntExtra("earfcn", -1).let { if (it == -1) null else it } else null
         val dbm = if (intent.hasExtra("dbm")) intent.getIntExtra("dbm", -120).let { if (it == -120) null else it } else null
         val ta = if (intent.hasExtra("ta")) intent.getIntExtra("ta", -1).let { if (it == -1) null else it } else null
+        val earfcn = if (intent.hasExtra("earfcn")) intent.getIntExtra("earfcn", -1).let { if (it == -1) null else it } else null
         val neighbors = if (intent.hasExtra("neighbors")) intent.getIntExtra("neighbors", -1).let { if (it == -1) null else it } else null
+        val networkType = intent.getStringExtra("networkType") ?: "LTE"
         var severity = intent.getIntExtra("severity", 1)
         var description = descriptionStr
-        val rawData = intent.getStringExtra("rawData")
 
         val currentLac = lac ?: tac
         val lastLac = lastLacs[simSlot]
         val lastCellId = lastCellIds[simSlot]
 
-        if (currentLac != null && lastLac != null && currentLac != lastLac) {
-            if (cellId != null && cellId == lastCellId) {
-                severity = 9
-                description = "CRITICAL: LAC changed for SAME Cell ID ($lastLac -> $currentLac) on SIM $simSlot"
-                sendAlertBroadcast(context, "LOCATION_ANOMALY", severity, description, simSlot)
+        if (!isNeighbor) {
+            if (currentLac != null && lastLac != null && currentLac != lastLac) {
+                if (cellId != null && cellId == lastCellId) {
+                    severity = 9
+                    description = "CRITICAL: LAC changed for SAME Cell ID ($lastLac -> $currentLac) on SIM $simSlot"
+                }
             }
-        }
-        if (currentLac != null) {
-            lastLacs[simSlot] = currentLac
-        }
-        if (cellId != null) {
-            lastCellIds[simSlot] = cellId
-        }
-
-        if (eventType == EventType.RADIO_METRICS_UPDATE && neighbors == 0 && severity < 5) {
-            severity = 6
-            description = "SUSPICIOUS: Lonely Cell detected (No neighbors found) on SIM $simSlot"
+            if (currentLac != null) lastLacs[simSlot] = currentLac
+            if (cellId != null) lastCellIds[simSlot] = cellId
         }
 
         val event = ForensicEvent(
-            type = eventType,
-            severity = severity,
-            description = description,
-            cellId = cellId,
-            lac = lac,
-            tac = tac,
-            pci = pci,
-            earfcn = earfcn,
-            mnc = mnc,
-            mcc = mcc,
-            networkType = intent.getStringExtra("networkType"),
-            signalStrength = dbm,
-            neighborCount = neighbors,
-            timingAdvance = ta,
-            rawData = rawData,
-            simSlot = simSlot
+            type = eventType, severity = severity, description = description, cellId = cellId,
+            lac = lac, tac = tac, pci = pci, mnc = mnc, mcc = mcc,
+            networkType = networkType, signalStrength = dbm, neighborCount = neighbors,
+            timingAdvance = ta, earfcn = earfcn, simSlot = simSlot, rawData = intent.getStringExtra("rawData")
         )
-
-        if (severity >= 8) {
-            triggerAlarm(context)
-            startAlertActivity(context, event)
-        } else if (severity >= 7) {
-            triggerAlarm(context)
-        }
 
         val db = ForensicDatabase.getDatabase(context)
         val dao = db.forensicDao()
         val prefs = context.getSharedPreferences("sentry_settings", Context.MODE_PRIVATE)
         
-        val ocidKey = prefs.getString("opencellid_key", "") ?: ""
-        val ulKey = prefs.getString("unwiredlabs_key", "") ?: ""
-        val useBdb = prefs.getBoolean("use_beacondb", true)
-        val useOcid = prefs.getBoolean("use_opencellid", false)
-        val useUl = prefs.getBoolean("use_unwiredlabs", false)
-
         CoroutineScope(Dispatchers.IO).launch {
             dao.insertEvent(event)
 
             if (cellId != null && mcc != null && mnc != null) {
-                val realLac = lac ?: tac ?: 0
+                val realLac = currentLac ?: 0
                 val lastRequest = apiThrottleCache[cellId] ?: 0L
-                val isThrottled = System.currentTimeMillis() - lastRequest < 30000
+                val isThrottled = System.currentTimeMillis() - lastRequest < 5000 
 
                 val existingTower = dao.getTowerById(cellId)
                 val localLoc = requestFreshLocation(context)
 
                 if (existingTower == null || existingTower.latitude == null || !existingTower.isVerified) {
-                    var towerLat: Double? = null
-                    var towerLon: Double? = null
-                    var isVerified = false
-                    var range: Double? = null
-                    var samples: Int? = null
-                    var changeable: Boolean? = null
-                    var towerSource: String? = null
-
                     if (!isThrottled) {
                         apiThrottleCache[cellId] = System.currentTimeMillis()
                         val result = CellLookupManager(
-                            openCellIdKey = ocidKey, 
-                            unwiredLabsKey = ulKey,
-                            useBeaconDb = useBdb,
-                            useOpenCellId = useOcid,
-                            useUnwiredLabs = useUl
-                        ).lookup(mcc, mnc, realLac, cellId)
+                            beaconDbKey = prefs.getString("beacondb_key", "") ?: "",
+                            openCellIdKey = prefs.getString("opencellid_key", "") ?: "",
+                            useBeaconDb = prefs.getBoolean("use_beacondb", true),
+                            useOpenCellId = prefs.getBoolean("use_opencellid", false)
+                        ).lookup(mcc, mnc, realLac, cellId, networkType, pci, ta, dbm)
 
-                        if (result.isFound) {
-                            towerLat = result.lat
-                            towerLon = result.lon
-                            range = result.range
-                            samples = result.samples
-                            changeable = result.changeable
-                            towerSource = result.source
-                            isVerified = true
+                        if (result.isFound && result.lat != null && result.lon != null) {
+                            // LOCATION VALIDATION
+                            if (localLoc != null) {
+                                val distance = calculateDistance(localLoc.latitude, localLoc.longitude, result.lat, result.lon)
+                                if (distance > 50000) { // > 50km is extremely suspicious
+                                    val alertDesc = "LOCATION ANOMALY: Cell $cellId reported at ${result.lat}, ${result.lon} is ${distance/1000}km away!"
+                                    Log.e(TAG, alertDesc)
+                                    dao.insertEvent(ForensicEvent(
+                                        type = EventType.IMSI_CATCHER_ALERT,
+                                        severity = 10,
+                                        description = alertDesc,
+                                        cellId = cellId,
+                                        simSlot = simSlot,
+                                        mcc = mcc,
+                                        mnc = mnc,
+                                        lac = lac,
+                                        tac = tac,
+                                        signalStrength = dbm,
+                                        earfcn = earfcn
+                                    ))
+                                    
+                                    // Trigger Hybrid Scan for location anomalies
+                                    context.sendBroadcast(Intent("dev.fzer0x.imsicatcherdetector2.TRIGGER_HYBRID_SCAN").apply {
+                                        putExtra("reason", "Location Anomaly ($cellId)")
+                                    })
+                                }
+                            }
+
+                            val tower = existingTower ?: CellTower(
+                                cellId = cellId, mcc = mcc, mnc = mnc, lac = realLac, rat = networkType
+                            )
+                            dao.upsertTower(tower.copy(
+                                latitude = result.lat, longitude = result.lon,
+                                pci = pci ?: tower.pci, ta = ta ?: tower.ta, dbm = dbm ?: tower.dbm,
+                                isVerified = true, isMissingInDb = false, range = result.range,
+                                lastSeen = System.currentTimeMillis(), source = result.source
+                            ))
+                        } else if (existingTower == null) {
+                             // UNKNOWN CELL -> Possible IMSI Catcher
+                             if (localLoc != null) {
+                                 dao.upsertTower(CellTower(
+                                    cellId = cellId, mcc = mcc, mnc = mnc, lac = realLac, rat = networkType,
+                                    latitude = localLoc.latitude, longitude = localLoc.longitude,
+                                    pci = pci, ta = ta, dbm = dbm, isVerified = false, source = "Local GPS",
+                                    isMissingInDb = true
+                                ))
+                                
+                                // Trigger Hybrid Scan for completely unknown cells
+                                context.sendBroadcast(Intent("dev.fzer0x.imsicatcherdetector2.TRIGGER_HYBRID_SCAN").apply {
+                                    putExtra("reason", "Unknown Cell ($cellId)")
+                                })
+                             }
                         }
                     }
-
-                    if (towerLat == null && localLoc != null && (existingTower?.latitude == null)) {
-                        towerLat = localLoc.latitude
-                        towerLon = localLoc.longitude
-                        isVerified = false
-                        towerSource = "Local GPS"
-                    }
-
-                    if (towerLat != null || existingTower != null) {
-                        val tower = existingTower ?: CellTower(
-                            cellId = cellId, mcc = mcc, mnc = mnc, lac = realLac, rat = event.networkType ?: "LTE"
-                        )
-                        dao.upsertTower(tower.copy(
-                            latitude = towerLat ?: tower.latitude,
-                            longitude = towerLon ?: tower.longitude,
-                            isVerified = isVerified || tower.isVerified,
-                            range = range ?: tower.range,
-                            samples = samples ?: tower.samples,
-                            changeable = changeable ?: tower.changeable,
-                            lastSeen = System.currentTimeMillis(),
-                            source = towerSource ?: tower.source
-                        ))
-                    }
                 } else {
-                    dao.upsertTower(existingTower.copy(lastSeen = System.currentTimeMillis()))
+                    dao.upsertTower(existingTower.copy(
+                        lastSeen = System.currentTimeMillis(),
+                        pci = pci ?: existingTower.pci, ta = ta ?: existingTower.ta, dbm = dbm ?: existingTower.dbm
+                    ))
                 }
             }
         }
     }
 
-    private fun startAlertActivity(context: Context, event: ForensicEvent) {
-        val alertIntent = Intent(context, AlertActivity::class.java).apply {
-            putExtra("title", "IMSI CATCHER DETECTED")
-            putExtra("description", event.description)
-            putExtra("severity", event.severity)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-        }
-        context.startActivity(alertIntent)
-    }
-
-    private fun sendAlertBroadcast(context: Context, type: String, severity: Int, desc: String, simSlot: Int) {
-        val intent = Intent("dev.fzer0x.imsicatcherdetector2.FORENSIC_EVENT")
-        intent.setPackage(context.packageName)
-        intent.putExtra("eventType", type)
-        intent.putExtra("severity", severity)
-        intent.putExtra("description", desc)
-        intent.putExtra("simSlot", simSlot)
-        context.sendBroadcast(intent)
+    private fun calculateDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val r = 6371e3
+        val phi1 = lat1 * PI / 180
+        val phi2 = lat2 * PI / 180
+        val deltaPhi = (lat2 - lat1) * PI / 180
+        val deltaLambda = (lon2 - lon1) * PI / 180
+        val a = sin(deltaPhi / 2).pow(2) + cos(phi1) * cos(phi2) * sin(deltaLambda / 2).pow(2)
+        val c = 2 * atan2(sqrt(a), sqrt(1 - a))
+        return r * c
     }
 
     private fun requestFreshLocation(context: Context): Location? {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return null
         val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        return try {
-            val loc = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER) ?: lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-            if (loc != null && System.currentTimeMillis() - loc.time < 600000) loc else null
-        } catch (e: Exception) { null }
-    }
-
-    private fun triggerAlarm(context: Context) {
-        val prefs = context.getSharedPreferences("sentry_settings", Context.MODE_PRIVATE)
-        if (!prefs.getBoolean("alarm_vibe", true)) return
-        try {
-            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
-            } else {
-                @Suppress("DEPRECATION") context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-            }
-            vibrator.vibrate(VibrationEffect.createOneShot(500, VibrationEffect.DEFAULT_AMPLITUDE))
-        } catch (e: Exception) {}
+        return try { lm.getLastKnownLocation(LocationManager.GPS_PROVIDER) ?: lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER) } catch (e: Exception) { null }
     }
 }

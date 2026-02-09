@@ -23,27 +23,39 @@ class UnwiredLabsClient(private val apiKey: String) {
     private val client = HttpClientSecurityManager.createSecureOkHttpClient()
     private val JSON = "application/json; charset=utf-8".toMediaType()
 
-    suspend fun verifyTower(mcc: String, mnc: String, lacOrTac: Int, cellId: String, rat: String): UnwiredResult = withContext(Dispatchers.IO) {
-        if (apiKey.isBlank()) return@withContext UnwiredResult(false, error = "No API Key")
+    suspend fun verifyTower(
+        mcc: String, 
+        mnc: String, 
+        lacOrTac: Int, 
+        cellId: String, 
+        rat: String,
+        pci: Int? = null,
+        ta: Int? = null,
+        signalStrength: Int? = null
+    ): UnwiredResult = withContext(Dispatchers.IO) {
+        if (apiKey.isBlank() || apiKey == "YOUR_API_KEY_HERE") return@withContext UnwiredResult(false, error = "No API Key")
 
         try {
-            val radioType = when(rat.uppercase()) {
-                "NR" -> "nr"
-                "LTE" -> "lte"
-                "WCDMA", "UMTS" -> "gsm"
-                else -> "gsm"
+            val radioType = when {
+                rat.contains("NR", ignoreCase = true) || rat.contains("5G", ignoreCase = true) -> "nr"
+                rat.contains("LTE", ignoreCase = true) || rat.contains("4G", ignoreCase = true) -> "lte"
+                rat.contains("WCDMA", ignoreCase = true) || rat.contains("UMTS", ignoreCase = true) -> "umts"
+                rat.contains("GSM", ignoreCase = true) -> "gsm"
+                else -> "lte"
             }
 
             val cellObj = JSONObject().apply {
                 put("lac", lacOrTac)
                 put("cid", cellId.toLongOrNull() ?: 0L)
+                if (pci != null && pci != -1) put("psc", pci)
+                if (signalStrength != null && signalStrength != -120) put("signal", signalStrength)
             }
 
             val requestBody = JSONObject().apply {
                 put("token", apiKey)
                 put("radio", radioType)
                 put("mcc", mcc.toIntOrNull() ?: 0)
-                put("mnc", mnc.toIntOrNull() ?: 0)
+                put("mnc", mnc.padStart(2, '0').toIntOrNull() ?: 0)
                 put("cells", JSONArray().put(cellObj))
                 put("address", 0)
             }.toString().toRequestBody(JSON)
@@ -62,9 +74,10 @@ class UnwiredLabsClient(private val apiKey: String) {
                 
                 if (status == "ok") {
                     val lat = json.optDouble("lat", Double.NaN)
-                    val lon = json.optDouble("lon", Double.NaN)
+                    // Robust check for both "lon" and "lng"
+                    val lon = if (json.has("lon")) json.optDouble("lon", Double.NaN) else json.optDouble("lng", Double.NaN)
                     val accuracy = json.optDouble("accuracy", Double.NaN)
-                    
+
                     if (!lat.isNaN() && !lon.isNaN()) {
                         UnwiredResult(
                             isFound = true,
@@ -73,7 +86,7 @@ class UnwiredLabsClient(private val apiKey: String) {
                             range = if (!accuracy.isNaN()) accuracy else null
                         )
                     } else {
-                        UnwiredResult(false, error = "No coordinates")
+                        UnwiredResult(false, error = "Invalid coordinates")
                     }
                 } else {
                     UnwiredResult(false, error = json.optString("message", "Error"))

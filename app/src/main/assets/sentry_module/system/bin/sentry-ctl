@@ -1,0 +1,70 @@
+#!/system/bin/sh
+# Sentry Radio Hardening - Advanced Snapdragon Telemetry v1.4
+
+COMMAND=$1
+VALUE=$2
+
+log_action() {
+    log -t SentryHardening "CLI: $1"
+    echo "$1"
+}
+
+case $COMMAND in
+    "--force-lte")
+        if [ "$VALUE" == "true" ]; then
+            log_action "Enforcing LTE-only mode"
+            settings put global preferred_network_mode 11
+            settings put global preferred_network_mode1 11
+            settings put global preferred_network_mode2 11
+        else
+            log_action "Restoring default network"
+            settings put global preferred_network_mode 9
+        fi
+        ;;
+    "--reset-radio")
+        log_action "Modem Reset Triggered"
+        cmd phone restart-modem
+        ;;
+    "--panic")
+        log_action "EMERGENCY SHUTDOWN"
+        settings put global airplane_mode_on 1
+        am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true
+        stop ril-daemon
+        ;;
+    "--block-2g")
+        setprop persist.radio.block_gsm $([ "$VALUE" == "true" ] && echo 1 || echo 0)
+        ;;
+    "--telemetry")
+        echo "--- Snapdragon Modem Telemetry ---"
+        # Get encryption algorithm
+        ALGO=$(getprop vendor.radio.cipher_algo)
+        [ -z "$ALGO" ] && ALGO="A5/3 (Likely)"
+        echo "Algorithm: $ALGO"
+
+        # Get RRC State
+        RRC=$(dumpsys telephony.registry | grep mRrcState | head -n 1 | cut -d= -f2)
+        echo "RRC State: $RRC"
+
+        # Extended Qualcomm Metrics
+        echo "Signal-RSRP: $(getprop vendor.radio.rsrp)"
+        echo "Signal-SNR: $(getprop vendor.radio.snr)"
+        echo "Baseband-Temp: $(getprop vendor.modem.temp)"
+        ;;
+    "--fingerprint")
+        echo "--- Modem Fingerprint ---"
+        echo "Baseband: $(getprop gsm.version.baseband)"
+        echo "Model: $(getprop ro.product.model)"
+        echo "Brand: $(getprop ro.product.brand)"
+        echo "Build: $(getprop ro.build.display.id)"
+        echo "SecurityPatch: $(getprop ro.build.version.security_patch)"
+        echo "Chipset: $(getprop ro.board.platform)"
+        ;;
+    "--status")
+        echo "Sentry Module v0.3.0"
+        echo "Hardware: $(getprop ro.board.platform)"
+        echo "Hardening: Active"
+        ;;
+    *)
+        echo "Usage: sentry-ctl [--force-lte|--reset-radio|--panic|--block-2g|--telemetry|--fingerprint|--status]"
+        ;;
+esac

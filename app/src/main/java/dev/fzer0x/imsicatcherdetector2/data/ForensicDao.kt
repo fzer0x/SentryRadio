@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import dev.fzer0x.imsicatcherdetector2.security.CveEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -27,6 +28,9 @@ interface ForensicDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertTower(tower: CellTower)
 
+    @Query("DELETE FROM cell_towers")
+    suspend fun deleteAllTowers()
+
     @Query("UPDATE cell_towers SET isBlocked = :blocked WHERE cellId = :cellId")
     suspend fun updateBlockStatus(cellId: String, blocked: Boolean)
 
@@ -38,4 +42,17 @@ interface ForensicDao {
 
     @Query("DELETE FROM forensic_logs WHERE cellId IN (SELECT cellId FROM cell_towers WHERE isBlocked = 1)")
     suspend fun deleteBlockedLogs()
+
+    @Query("DELETE FROM forensic_logs WHERE type = 'RADIO_METRICS_UPDATE' AND timestamp < :timestamp")
+    suspend fun pruneOldRadioMetrics(timestamp: Long)
+
+    // CVE Cache
+    @Query("SELECT * FROM cve_cache")
+    suspend fun getAllCves(): List<CveEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertCves(cves: List<CveEntity>)
+
+    @Query("DELETE FROM cve_cache WHERE lastUpdated < :threshold")
+    suspend fun pruneOldCveCache(threshold: Long)
 }

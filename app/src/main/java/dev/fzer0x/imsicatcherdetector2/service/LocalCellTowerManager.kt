@@ -11,7 +11,7 @@ import android.util.Log
 class LocalCellTowerManager(
     private val dao: LocalCellTowerDao,
     private val context: Context,
-    private val openCellIdClient: CellLookupManager? = null  
+    private val lookupManager: CellLookupManager? = null  
 ) {
     companion object {
         private const val TAG = "LocalCellTowerManager"
@@ -76,11 +76,11 @@ class LocalCellTowerManager(
 
             Log.d(TAG, "Tower $cellId: Starte API-Abfrage (PRIMARY)")
 
-            openCellIdClient?.let { client ->
+            lookupManager?.let { manager ->
                 try {
                     val result = withContext(Dispatchers.IO) {
                         try {
-                            client.lookup(mcc, mnc, lac ?: tac ?: 0, cellId)
+                            manager.lookup(mcc, mnc, lac, cellId, rat)
                         } catch (e: Exception) {
                             Log.w(TAG, "API-Fehler für $cellId: ${e.message}")
                             null
@@ -98,7 +98,6 @@ class LocalCellTowerManager(
                             apiLastChecked = System.currentTimeMillis(),
                             apiTrustLevel = 85,  
                             apiRange = result.range,
-                            apiSamples = result.samples,
                             status = TowerStatus.API_VERIFIED,
                             trustLevel = 85,
                             verificationMethod = "API"

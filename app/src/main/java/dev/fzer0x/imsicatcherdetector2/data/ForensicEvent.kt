@@ -12,7 +12,8 @@ enum class EventType {
     RRC_STATE_CHANGE,
     RADIO_METRICS_UPDATE,
     BASEBAND_FINGERPRINT,
-    TIMING_ADVANCE_ANOMALY
+    TIMING_ADVANCE_ANOMALY,
+    HYBRID_THREAT
 }
 
 @Entity(tableName = "forensic_logs")

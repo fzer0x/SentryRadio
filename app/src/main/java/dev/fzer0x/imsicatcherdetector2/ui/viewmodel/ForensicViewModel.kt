@@ -1,11 +1,20 @@
 package dev.fzer0x.imsicatcherdetector2.ui.viewmodel
 
+import android.Manifest
 import android.app.Application
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.location.Location
+import android.location.LocationManager
+import android.os.Build
 import android.util.Log
+import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import dev.fzer0x.imsicatcherdetector2.data.CellTower
 import dev.fzer0x.imsicatcherdetector2.data.EventType
 import dev.fzer0x.imsicatcherdetector2.data.ForensicDatabase
@@ -13,8 +22,18 @@ import dev.fzer0x.imsicatcherdetector2.data.ForensicEvent
 import dev.fzer0x.imsicatcherdetector2.service.BlockingEvent
 import dev.fzer0x.imsicatcherdetector2.service.CellLookupManager
 import dev.fzer0x.imsicatcherdetector2.service.ForensicService
+import dev.fzer0x.imsicatcherdetector2.security.RootRepository
+import dev.fzer0x.imsicatcherdetector2.security.VulnerabilityManager
+import dev.fzer0x.imsicatcherdetector2.security.CveEntry
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 data class UserSettings(
     val updateRate: Int = 15,
@@ -25,16 +44,16 @@ data class UserSettings(
     val autoPcap: Boolean = true,
     val alarmSound: Boolean = true,
     val alarmVibe: Boolean = true,
+    val beaconDbKey: String = "",
     val openCellIdKey: String = "",
-    val unwiredLabsKey: String = "",
     val useBeaconDb: Boolean = true,
     val useOpenCellId: Boolean = false,
-    val useUnwiredLabs: Boolean = false,
     val showBlockedEvents: Boolean = false,
     val blockGsm: Boolean = false,
     val rejectA50: Boolean = false,
     val markFakeCells: Boolean = true,
-    val forceLte: Boolean = false
+    val forceLte: Boolean = false,
+    val autoMitigation: Boolean = false
 )
 
 data class SimState(
@@ -49,7 +68,12 @@ data class SimState(
     val networkType: String = "Scanning...",
     val isCipheringActive: Boolean = true,
     val neighborCount: Int = 0,
-    val rssiHistory: List<Int> = emptyList()
+    val rssiHistory: List<Int> = emptyList(),
+    val cipherAlgo: String = "Scanning...",
+    val rrcStatus: String = "N/A",
+    val modemSnr: String = "N/A",
+    val modemTemp: String = "N/A",
+    val timingAdvance: Int? = null
 )
 
 data class DashboardState(
@@ -60,12 +84,32 @@ data class DashboardState(
     val activeThreats: List<String> = emptyList(),
     val hasRoot: Boolean = false,
     val isXposedActive: Boolean = false,
-    val activeSimSlot: Int = 0
+    val isHardeningModuleActive: Boolean = false,
+    val activeSimSlot: Int = 0,
+    val vulnerabilities: List<CveEntry> = emptyList(),
+    val detectedChipset: String = "Unknown",
+    val detectedBaseband: String = "Unknown",
+    val lastCveUpdate: String = "Never",
+    val securityPatch: String = "Unknown"
 )
 
 class ForensicViewModel(application: Application) : AndroidViewModel(application) {
 
     private val forensicDao = ForensicDatabase.getDatabase(application).forensicDao()
+    private val vulnerabilityManager = VulnerabilityManager(application)
+    
+    private val masterKey = MasterKey.Builder(application)
+        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+        .build()
+
+    private val encryptedPrefs = EncryptedSharedPreferences.create(
+        application,
+        "sentry_secure_settings",
+        masterKey,
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+    )
+
     private val prefs = application.getSharedPreferences("sentry_settings", Context.MODE_PRIVATE)
 
     private val _settings = MutableStateFlow(loadSettings())
@@ -81,31 +125,14 @@ class ForensicViewModel(application: Application) : AndroidViewModel(application
         _blockedCellIds
     ) { logs, currentSettings, blockedIds ->
         var filtered = logs
-        
-        if (!currentSettings.showBlockedEvents) {
-            filtered = filtered.filter { it.cellId == null || !blockedIds.contains(it.cellId) }
-        }
-
-        if (!currentSettings.logRadioMetrics) {
-            filtered = filtered.filter { it.type != EventType.RADIO_METRICS_UPDATE }
-        }
-
-        if (!currentSettings.logSuspiciousEvents) {
-            filtered = filtered.filter { it.severity < 5 || it.severity > 7 }
-        }
-
-        if (!currentSettings.logRootFeed) {
-            filtered = filtered.filter { 
-                !it.description.contains("Live Signal Feed") && 
-                !it.description.contains("Real-time Signal Update")
-            }
-        }
-        
+        if (!currentSettings.showBlockedEvents) filtered = filtered.filter { it.cellId == null || !blockedIds.contains(it.cellId) }
+        if (!currentSettings.logRadioMetrics) filtered = filtered.filter { it.type != EventType.RADIO_METRICS_UPDATE }
+        if (!currentSettings.logSuspiciousEvents) filtered = filtered.filter { it.severity !in 5..7 }
+        if (!currentSettings.logRootFeed) filtered = filtered.filter { !it.description.contains("Signal Feed") }
         filtered.sortedByDescending { it.timestamp }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    val allTowers: StateFlow<List<CellTower>> = forensicDao.getAllTowers()
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val allTowers: StateFlow<List<CellTower>> = forensicDao.getAllTowers().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _dashboardState = MutableStateFlow(DashboardState())
     val dashboardState: StateFlow<DashboardState> = _dashboardState.asStateFlow()
@@ -118,342 +145,299 @@ class ForensicViewModel(application: Application) : AndroidViewModel(application
 
     init {
         checkSystemStatus()
-        startBlockingEventPoller()
+        observeBlockingEvents()
+        startModemTelemetryPoller()
+        startDataPruningJob()
 
-        forensicDao.getAllLogs().onEach { logs ->
-            if (logs.isEmpty()) {
-                _dashboardState.update { it.copy(securityStatus = "No Data Logs") }
-                return@onEach
-            }
+        viewModelScope.launch {
+            forensicDao.getAllLogs().collect { logs ->
+                if (logs.isEmpty()) {
+                    _dashboardState.update { it.copy(securityStatus = "No Data Logs") }
+                    return@collect
+                }
+                val threshold = if(_settings.value.sensitivity == 0) 9 else 7
+                val criticals = logs.filter { it.severity >= threshold && (System.currentTimeMillis() - it.timestamp < 3600000) }
+                val hasAlert = logs.any { (it.type == EventType.IMSI_CATCHER_ALERT || it.type == EventType.CIPHERING_OFF) && (System.currentTimeMillis() - it.timestamp < 600000) }
+                val score = if (hasAlert) 100 else (criticals.size * 20).coerceIn(0, 100)
+                val status = when { score >= 90 -> "CRITICAL: THREAT DETECTED"; score > 50 -> "WARNING: ANOMALIES"; else -> "SYSTEM SECURE" }
 
-            val threshold = when(_settings.value.sensitivity) { 0 -> 9 else -> 7 }
-            val criticals = logs.filter { it.severity >= threshold && (System.currentTimeMillis() - it.timestamp < 3600000) }
-            val threats = criticals.map { it.description }.distinct()
-            val hasAlert = logs.any { (it.type == EventType.IMSI_CATCHER_ALERT || it.type == EventType.CIPHERING_OFF) && (System.currentTimeMillis() - it.timestamp < 600000) }
-            val score = if (hasAlert) 100 else (criticals.size * 20).coerceIn(0, 100)
-            
-            val status = when {
-                score >= 90 -> "CRITICAL: THREAT DETECTED"
-                score > 50 -> "WARNING: ANOMALIES"
-                else -> "SYSTEM SECURE"
+                _dashboardState.update { state ->
+                    state.copy(
+                        sim0 = updateSimState(logs, 0, state.sim0),
+                        sim1 = updateSimState(logs, 1, state.sim1),
+                        threatLevel = score, securityStatus = status, activeThreats = criticals.map { it.description }.distinct()
+                    )
+                }
             }
-
-            _dashboardState.update { state ->
-                state.copy(
-                    sim0 = updateSimState(logs, 0, state.sim0),
-                    sim1 = updateSimState(logs, 1, state.sim1),
-                    threatLevel = score,
-                    securityStatus = status,
-                    activeThreats = threats,
-                    isXposedActive = isXposedModuleActive() || logs.any { it.description.contains("Xposed") || it.description.contains("ENGINE ACTIVE") }
-                )
-            }
-        }.launchIn(viewModelScope)
+        }
     }
+
+    fun isXposedModuleActive(): Boolean = false
 
     private fun updateSimState(logs: List<ForensicEvent>, slot: Int, current: SimState): SimState {
         val simLogs = logs.filter { it.simSlot == slot }
         if (simLogs.isEmpty()) return current
-
         val latestCell = simLogs.firstOrNull { it.cellId != null }
-        val latestPci = simLogs.firstOrNull { it.pci != null && it.pci != -1 }
-        val latestEarfcn = simLogs.firstOrNull { it.earfcn != null && it.earfcn != -1 }
-        val latestSignal = simLogs.firstOrNull { it.signalStrength != null }
-        val signalHistory = simLogs.filter { it.signalStrength != null }.take(20).map { it.signalStrength!! }.reversed()
-
+        val signalHistory = simLogs.filter { it.signalStrength != null }.map { it.signalStrength!! }.take(20).reversed()
         return current.copy(
-            currentCellId = latestCell?.cellId ?: current.currentCellId,
-            mcc = latestCell?.mcc ?: current.mcc,
-            mnc = latestCell?.mnc ?: current.mnc,
-            lac = latestCell?.lac?.toString() ?: current.lac,
-            tac = latestCell?.tac?.toString() ?: current.tac,
-            pci = latestPci?.pci?.toString() ?: current.pci,
-            earfcn = latestEarfcn?.earfcn?.toString() ?: current.earfcn,
-            networkType = latestCell?.networkType ?: current.networkType,
-            neighborCount = latestCell?.neighborCount ?: current.neighborCount,
-            signalStrength = latestSignal?.signalStrength ?: current.signalStrength,
+            currentCellId = latestCell?.cellId ?: current.currentCellId, mcc = latestCell?.mcc ?: current.mcc, mnc = latestCell?.mnc ?: current.mnc,
+            lac = latestCell?.lac?.toString() ?: current.lac, tac = latestCell?.tac?.toString() ?: current.tac,
+            pci = simLogs.firstOrNull { it.pci != null && it.pci != -1 }?.pci?.toString() ?: current.pci,
+            earfcn = simLogs.firstOrNull { it.earfcn != null && it.earfcn != -1 }?.earfcn?.toString() ?: current.earfcn,
+            networkType = latestCell?.networkType ?: current.networkType, neighborCount = latestCell?.neighborCount ?: current.neighborCount,
+            signalStrength = simLogs.firstOrNull { it.signalStrength != null }?.signalStrength ?: current.signalStrength,
             isCipheringActive = !simLogs.any { it.type == EventType.CIPHERING_OFF && (System.currentTimeMillis() - it.timestamp < 600000) },
-            rssiHistory = signalHistory
+            rssiHistory = signalHistory,
+            timingAdvance = simLogs.firstOrNull { it.timingAdvance != null && it.timingAdvance != -1 }?.timingAdvance
         )
     }
 
-    private fun startBlockingEventPoller() {
+    private fun observeBlockingEvents() {
         viewModelScope.launch {
-            while (true) {
-                try {
-                    val events = ForensicService.getBlockingEvents()
-                    _blockingEvents.value = events.sortedByDescending { it.timestamp }
-                } catch (e: Exception) {
-                    Log.e("ForensicViewModel", "Error fetching blocking events: ${e.message}")
-                }
-                kotlinx.coroutines.delay(2000) // Poll alle 2 Sekunden
+            _blockingEvents.value = ForensicService.getBlockingEvents().sortedByDescending { it.timestamp }
+            ForensicService.blockingEventsFlow.collect { event ->
+                _blockingEvents.update { (listOf(event) + it).take(ForensicService.MAX_BLOCKING_EVENTS) }
             }
         }
     }
 
-    fun setActiveSimSlot(slot: Int) {
-        _dashboardState.update { it.copy(activeSimSlot = slot) }
+    private fun startModemTelemetryPoller() {
+        viewModelScope.launch {
+            while (isActive) {
+                if (_dashboardState.value.hasRoot) {
+                    var algo = "A5/3 (Likely)"
+                    var rrc = "N/A"
+                    var snr = "N/A"
+                    var temp = "N/A"
+
+                    if (_dashboardState.value.isHardeningModuleActive) {
+                        val result = RootRepository.execute("sentry-ctl --telemetry")
+                        if (result.success) {
+                            val output = result.output
+                            algo = output.lines().find { it.contains("Algorithm", true) }?.split(":")?.getOrNull(1)?.trim() ?: algo
+                            rrc = output.lines().find { it.contains("RRC State", true) }?.split(":")?.getOrNull(1)?.trim() ?: rrc
+                            snr = output.lines().find { it.contains("Signal-SNR", true) }?.split(":")?.getOrNull(1)?.trim() ?: snr
+                            temp = output.lines().find { it.contains("Baseband-Temp", true) }?.split(":")?.getOrNull(1)?.trim() ?: temp
+                        }
+                    } else {
+                        val propsToCheck = listOf("vendor.radio.cipher_algo", "persist.vendor.radio.cipher_algo", "gsm.radio.cipher", "vendor.radio.encryption")
+                        for (prop in propsToCheck) {
+                            val res = RootRepository.execute("getprop $prop").output.trim()
+                            if (res.isNotEmpty()) { algo = res; break }
+                        }
+                        val dumpsysOutput = RootRepository.execute("dumpsys telephony.registry").output
+                        val rrcLines = dumpsysOutput.lines().filter { it.contains("mRrcState", true) }
+                        rrc = if (rrcLines.isNotEmpty()) {
+                            val activeSlot = _dashboardState.value.activeSimSlot
+                            val line = if (activeSlot < rrcLines.size) rrcLines[activeSlot] else rrcLines.first()
+                            if (line.contains("=")) line.split("=").last().trim() else "IDLE"
+                        } else "IDLE"
+                        snr = RootRepository.execute("getprop vendor.radio.snr").output.trim().ifEmpty { RootRepository.execute("getprop vendor.radio.rsrq").output.trim().ifEmpty { "N/A" } }
+                        temp = RootRepository.execute("getprop vendor.modem.temp").output.trim().ifEmpty { RootRepository.execute("getprop vendor.modem.temperature").output.trim().ifEmpty { "N/A" } }
+                    }
+                    _dashboardState.update { it.copy(sim0 = it.sim0.copy(cipherAlgo = algo, rrcStatus = rrc, modemSnr = snr, modemTemp = temp), sim1 = it.sim1.copy(cipherAlgo = algo, rrcStatus = rrc, modemSnr = snr, modemTemp = temp)) }
+                }
+                delay(5000)
+            }
+        }
     }
 
-    private fun isXposedModuleActive(): Boolean {
-        return false 
+    private fun startDataPruningJob() {
+        viewModelScope.launch {
+            while (isActive) {
+                val fortyEightHoursAgo = System.currentTimeMillis() - (48 * 60 * 60 * 1000)
+                withContext(Dispatchers.IO) { forensicDao.pruneOldRadioMetrics(fortyEightHoursAgo) }
+                delay(12 * 60 * 60 * 1000)
+            }
+        }
     }
+
+    fun setActiveSimSlot(slot: Int) { _dashboardState.update { it.copy(activeSimSlot = slot) } }
 
     fun toggleBlockCell(cellId: String) {
         viewModelScope.launch {
             val tower = forensicDao.getTowerById(cellId)
-            if (tower != null) {
-                forensicDao.updateBlockStatus(cellId, !tower.isBlocked)
-            } else {
-                forensicDao.upsertTower(CellTower(cellId = cellId, mcc = "0", mnc = "0", lac = 0, rat = "UNKNOWN", isBlocked = true))
+            if (tower != null) forensicDao.updateBlockStatus(cellId, !tower.isBlocked)
+            else forensicDao.upsertTower(CellTower(cellId = cellId, mcc = "0", mnc = "0", lac = 0, rat = "UNKNOWN", isBlocked = true))
+        }
+    }
+
+    fun unblockAllCells() { viewModelScope.launch { forensicDao.unblockAllTowers(); _syncStatus.emit("All cells unblocked") } }
+    fun deleteBlockedLogs() { viewModelScope.launch { forensicDao.deleteBlockedLogs(); _syncStatus.emit("Deleted logs from blocked cells") } }
+
+    /**
+     * DEEP LOCATION SEARCH: Checks service cache first, then all providers.
+     */
+    fun getFreshLocation(): Location? {
+        // 1. Try Service Cache first (Most reliable as it has an active listener)
+        ForensicService.lastServiceLocation?.let { return it }
+
+        val lm = getApplication<Application>().getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        if (ContextCompat.checkSelfPermission(getApplication(), Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) return null
+        
+        val providers = lm.getProviders(true)
+        var bestLocation: Location? = null
+        for (provider in providers) {
+            val l = try { lm.getLastKnownLocation(provider) } catch (e: Exception) { null }
+            if (l != null) {
+                if (bestLocation == null || l.accuracy < bestLocation.accuracy) {
+                    bestLocation = l
+                }
             }
         }
-    }
-    
-    fun isCellBlocked(cellId: String?): Boolean {
-        if (cellId == null) return false
-        return _blockedCellIds.value.contains(cellId)
+        return bestLocation
     }
 
-    fun unblockAllCells() {
-        viewModelScope.launch {
-            forensicDao.unblockAllTowers()
-            _syncStatus.emit("All cells unblocked")
+    fun saveMapState(lat: Double, lon: Double, zoom: Double) {
+        prefs.edit {
+            putFloat("last_map_lat", lat.toFloat())
+            putFloat("last_map_lon", lon.toFloat())
+            putFloat("last_map_zoom", zoom.toFloat())
+            putBoolean("has_map_state", true)
         }
     }
 
-    fun deleteBlockedLogs() {
-        viewModelScope.launch {
-            forensicDao.deleteBlockedLogs()
-            _syncStatus.emit("Deleted logs from blocked cells")
-        }
+    fun getLastMapState(): Triple<Double, Double, Double>? {
+        if (!prefs.getBoolean("has_map_state", false)) return null
+        return Triple(
+            prefs.getFloat("last_map_lat", 0f).toDouble(),
+            prefs.getFloat("last_map_lon", 0f).toDouble(),
+            prefs.getFloat("last_map_zoom", 15f).toDouble()
+        )
     }
 
     fun refreshTowerLocations() {
         val s = _settings.value
         viewModelScope.launch {
-            val towersToRefresh = allTowers.value.filter { !it.isVerified }
-            if (towersToRefresh.isEmpty()) {
-                _syncStatus.emit("No new towers to verify")
+            val currentLoc = getFreshLocation()
+            if (currentLoc == null) {
+                _syncStatus.emit("Scan failed: No GPS fix. Try moving or opening Google Maps once.")
                 return@launch
             }
 
-            val lookupManager = CellLookupManager(
-                openCellIdKey = s.openCellIdKey,
-                unwiredLabsKey = s.unwiredLabsKey,
-                useBeaconDb = s.useBeaconDb,
-                useOpenCellId = s.useOpenCellId,
-                useUnwiredLabs = s.useUnwiredLabs
-            )
-            var foundCount = 0
-            var missingCount = 0
+            _syncStatus.emit("Syncing OpenCellID...")
+            val lookupManager = CellLookupManager(s.beaconDbKey, s.openCellIdKey, s.useBeaconDb, s.useOpenCellId)
 
-            towersToRefresh.forEach { tower ->
-                val result = lookupManager.lookup(tower.mcc, tower.mnc, tower.lac, tower.cellId)
-                if (result.isFound && result.lat != null) {
-                    foundCount++
-                    forensicDao.upsertTower(tower.copy(
-                        latitude = result.lat, 
-                        longitude = result.lon, 
-                        isVerified = true,
-                        isMissingInDb = false,
-                        range = result.range,
-                        samples = result.samples,
-                        changeable = result.changeable,
-                        lastSeen = System.currentTimeMillis()
-                    ))
+            withContext(Dispatchers.IO) {
+                if (s.useOpenCellId && s.openCellIdKey.isNotBlank()) {
+                    val towers = lookupManager.getTowersInArea(currentLoc.latitude, currentLoc.longitude)
+                    if (towers.isEmpty()) {
+                        _syncStatus.emit("No towers found. Check API Key or BBOX order.")
+                    } else {
+                        towers.forEach { n ->
+                            if (n.lat != null && n.lon != null) {
+                                forensicDao.upsertTower(CellTower(
+                                    cellId = n.cellId ?: "OCID-${(Math.random()*100000).toInt()}", 
+                                    mcc = n.mcc ?: "---", mnc = n.mnc ?: "---", lac = n.lac ?: 0,
+                                    rat = n.rat ?: "LTE", latitude = n.lat, longitude = n.lon,
+                                    isVerified = true, range = n.range ?: 1000.0, source = "OpenCellID API",
+                                    lastSeen = System.currentTimeMillis()
+                                ))
+                            }
+                        }
+                        _syncStatus.emit("Success: Map populated with ${towers.size} towers.")
+                    }
                 } else {
-                    missingCount++
-                    forensicDao.upsertTower(tower.copy(isMissingInDb = true, isVerified = false))
+                    _syncStatus.emit("OpenCellID API is disabled in settings!")
                 }
-            }
-            
-            if (foundCount > 0) {
-                _syncStatus.emit("Success: Verified $foundCount towers")
-            } else if (missingCount > 0) {
-                _syncStatus.emit("Alert: $missingCount towers not found in DBs!")
             }
         }
     }
 
-    private fun checkSystemStatus() {
+    fun checkSystemStatus() {
         viewModelScope.launch {
-            val hasSu = try { Runtime.getRuntime().exec("su -c id").waitFor() == 0 } catch (e: Exception) { false }
-            _dashboardState.update { it.copy(hasRoot = hasSu) }
+            val hasRoot = RootRepository.isRootAvailable()
+            val isModule = if (hasRoot) RootRepository.fileExists("/data/adb/modules/sentry_radio_hardening/module.prop") else false
+            val isXposed = isXposedModuleActive()
+            _dashboardState.update { it.copy(hasRoot = hasRoot, isHardeningModuleActive = isModule, isXposedActive = isXposed) }
+            if (hasRoot) performFingerprinting()
+            else {
+                // Perform non-root fingerprinting if possible
+                performFingerprinting()
+            }
+        }
+    }
+
+    private suspend fun performFingerprinting() {
+        val chipset = if (_dashboardState.value.hasRoot) {
+            RootRepository.execute("getprop ro.board.platform").output.trim().ifEmpty { Build.HARDWARE }
+        } else {
+            Build.HARDWARE
+        }
+        
+        val baseband = if (_dashboardState.value.hasRoot) {
+            RootRepository.execute("getprop gsm.version.baseband").output.trim().ifEmpty { Build.getRadioVersion() ?: "Unknown" }
+        } else {
+            Build.getRadioVersion() ?: "Unknown"
+        }
+        
+        val securityPatch = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Build.VERSION.SECURITY_PATCH
+        } else {
+            "Unknown"
+        }
+        
+        val vulns = vulnerabilityManager.checkVulnerabilities(chipset, baseband, securityPatch)
+        
+        // Get last CVE update time from DAO
+        val allCached = forensicDao.getAllCves()
+        val lastUpdateMillis = allCached.maxOfOrNull { it.lastUpdated } ?: 0L
+        val lastUpdateStr = if (lastUpdateMillis > 0) {
+            SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(lastUpdateMillis))
+        } else {
+            "Never"
+        }
+
+        _dashboardState.update { it.copy(
+            vulnerabilities = vulns, 
+            detectedChipset = chipset.uppercase(), 
+            detectedBaseband = baseband,
+            lastCveUpdate = lastUpdateStr,
+            securityPatch = securityPatch
+        ) }
+    }
+
+    fun installHardeningModule(context: Context) {
+        viewModelScope.launch {
+            if (!_dashboardState.value.hasRoot) { _syncStatus.emit("Installation failed: Root required"); return@launch }
+            withContext(Dispatchers.IO) {
+                try {
+                    _syncStatus.emit("Installing... Root permission may be required.")
+                    val assetManager = context.assets; val moduleDir = "/data/adb/modules/sentry_radio_hardening"
+                    RootRepository.execute("mkdir -p $moduleDir/common"); RootRepository.execute("mkdir -p $moduleDir/system/bin")
+                    listOf("module.prop", "system.prop", "common/service.sh", "system/bin/sentry-ctl").forEach { path ->
+                        assetManager.open("sentry_module/$path").use { input -> 
+                            val content = input.bufferedReader().readText()
+                            RootRepository.execute("echo '${content.replace("'", "'\\''")}' > $moduleDir/$path") 
+                        }
+                    }
+                    RootRepository.execute("chmod 0644 $moduleDir/*.prop"); RootRepository.execute("chmod 0755 $moduleDir/common/*.sh"); RootRepository.execute("chmod 0755 $moduleDir/system/bin/*")
+                    _syncStatus.emit("Installation successful! Reboot required."); checkSystemStatus()
+                } catch (e: Exception) { _syncStatus.emit("Error installing module: ${e.message}") }
+            }
         }
     }
 
     private fun loadSettings() = UserSettings(
-        updateRate = prefs.getInt("update_rate", 15),
-        sensitivity = prefs.getInt("sensitivity", 1),
-        logRootFeed = prefs.getBoolean("log_root_feed", false),
-        logRadioMetrics = prefs.getBoolean("log_radio_metrics", false),
-        logSuspiciousEvents = prefs.getBoolean("log_suspicious_events", false),
-        autoPcap = prefs.getBoolean("auto_pcap", true),
-        alarmSound = prefs.getBoolean("alarm_sound", true),
-        alarmVibe = prefs.getBoolean("alarm_vibe", true),
-        openCellIdKey = prefs.getString("opencellid_key", "") ?: "",
-        unwiredLabsKey = prefs.getString("unwiredlabs_key", "") ?: "",
-        useBeaconDb = prefs.getBoolean("use_beacondb", true),
-        useOpenCellId = prefs.getBoolean("use_opencellid", false),
-        useUnwiredLabs = prefs.getBoolean("use_unwiredlabs", false),
-        showBlockedEvents = prefs.getBoolean("show_blocked_events", false),
-        blockGsm = prefs.getBoolean("block_gsm", false),
-        rejectA50 = prefs.getBoolean("reject_a50", false),
-        markFakeCells = prefs.getBoolean("mark_fake_cells", true),
-        forceLte = prefs.getBoolean("force_lte", false)
+        updateRate = prefs.getInt("update_rate", 15), sensitivity = prefs.getInt("sensitivity", 1), logRootFeed = prefs.getBoolean("log_root_feed", false), logRadioMetrics = prefs.getBoolean("log_radio_metrics", false), logSuspiciousEvents = prefs.getBoolean("log_suspicious_events", false), autoPcap = prefs.getBoolean("auto_pcap", true), alarmSound = prefs.getBoolean("alarm_sound", true), alarmVibe = prefs.getBoolean("alarm_vibe", true), beaconDbKey = encryptedPrefs.getString("beacon_db_key", "") ?: "", openCellIdKey = encryptedPrefs.getString("open_cell_id_key", "") ?: "", useBeaconDb = prefs.getBoolean("use_beacon_db", true), useOpenCellId = prefs.getBoolean("use_open_cell_id", false), showBlockedEvents = prefs.getBoolean("show_blocked_events", false), blockGsm = prefs.getBoolean("block_gsm", false), rejectA50 = prefs.getBoolean("reject_a50", false), markFakeCells = prefs.getBoolean("mark_fake_cells", true), forceLte = prefs.getBoolean("force_lte", false), autoMitigation = prefs.getBoolean("auto_mitigation", false)
     )
 
-    fun updateOpenCellIdKey(key: String) {
-        _settings.update { it.copy(openCellIdKey = key) }
-        prefs.edit().putString("opencellid_key", key).apply()
-    }
-
-    fun updateUnwiredLabsKey(key: String) {
-        _settings.update { it.copy(unwiredLabsKey = key) }
-        prefs.edit().putString("unwiredlabs_key", key).apply()
-    }
-
-    fun updateUseBeaconDb(value: Boolean) {
-        _settings.update { it.copy(useBeaconDb = value) }
-        prefs.edit().putBoolean("use_beacondb", value).apply()
-    }
-
-    fun updateUseOpenCellId(value: Boolean) {
-        _settings.update { it.copy(useOpenCellId = value) }
-        prefs.edit().putBoolean("use_opencellid", value).apply()
-    }
-
-    fun updateUseUnwiredLabs(value: Boolean) {
-        _settings.update { it.copy(useUnwiredLabs = value) }
-        prefs.edit().putBoolean("use_unwiredlabs", value).apply()
-    }
-
-    fun updateSensitivity(value: Int) { 
-        _settings.update { it.copy(sensitivity = value) }
-        prefs.edit().putInt("sensitivity", value).apply() 
-    }
-    
-    fun updateRate(value: Int) { 
-        _settings.update { it.copy(updateRate = value) }
-        prefs.edit().putInt("update_rate", value).apply() 
-    }
-    
-    fun updateLogRootFeed(value: Boolean) { 
-        _settings.update { it.copy(logRootFeed = value) }
-        prefs.edit().putBoolean("log_root_feed", value).apply() 
-    }
-
-    fun updateLogRadioMetrics(value: Boolean) {
-        _settings.update { it.copy(logRadioMetrics = value) }
-        prefs.edit().putBoolean("log_radio_metrics", value).apply()
-    }
-
-    fun updateLogSuspiciousEvents(value: Boolean) {
-        _settings.update { it.copy(logSuspiciousEvents = value) }
-        prefs.edit().putBoolean("log_suspicious_events", value).apply()
-    }
-    
-    fun updateAutoPcap(value: Boolean) { 
-        _settings.update { it.copy(autoPcap = value) }
-        prefs.edit().putBoolean("auto_pcap", value).apply() 
-    }
-    
-    fun updateAlarmSound(value: Boolean) { 
-        _settings.update { it.copy(alarmSound = value) }
-        prefs.edit().putBoolean("alarm_sound", value).apply() 
-    }
-    
-    fun updateAlarmVibe(value: Boolean) { 
-        _settings.update { it.copy(alarmVibe = value) }
-        prefs.edit().putBoolean("alarm_vibe", value).apply() 
-    }
-    
-    fun updateShowBlockedEvents(value: Boolean) {
-        _settings.update { it.copy(showBlockedEvents = value) }
-        prefs.edit().putBoolean("show_blocked_events", value).apply()
-    }
-
-    fun updateBlockGsm(value: Boolean) {
-        _settings.update { it.copy(blockGsm = value) }
-        prefs.edit().putBoolean("block_gsm", value).apply()
-        sendSettingsBroadcast()
-        viewModelScope.launch {
-            _syncStatus.emit(if(value) "GSM blocking: ENABLED" else "GSM blocking: DISABLED")
-        }
-    }
-
-    fun updateRejectA50(value: Boolean) {
-        _settings.update { it.copy(rejectA50 = value) }
-        prefs.edit().putBoolean("reject_a50", value).apply()
-        sendSettingsBroadcast()
-        viewModelScope.launch {
-            _syncStatus.emit(if(value) "A5/0 rejection: ENABLED" else "A5/0 rejection: DISABLED")
-        }
-    }
-
-    fun updateMarkFakeCells(value: Boolean) {
-        _settings.update { it.copy(markFakeCells = value) }
-        prefs.edit().putBoolean("mark_fake_cells", value).apply()
-    }
-
-    fun updateForceLte(value: Boolean) {
-        _settings.update { it.copy(forceLte = value) }
-        prefs.edit().putBoolean("force_lte", value).apply()
-        if (value) triggerForceLte()
-    }
-
-    private fun sendSettingsBroadcast() {
-        val intent = Intent("dev.fzer0x.imsicatcherdetector2.SETTINGS_CHANGED")
-        intent.putExtra("blockGsm", _settings.value.blockGsm)
-        intent.putExtra("rejectA50", _settings.value.rejectA50)
-        getApplication<Application>().sendBroadcast(intent)
-    }
-
-    private fun triggerForceLte() {
-        viewModelScope.launch {
-            try {
-                // Network mode values for different manufacturers:
-                // 11 = LTE only (Samsung, Pixel)
-                // 38 = LTE/NR (5G) only
-                // 9 = LTE only (alternative for some devices)
-                val networkModes = listOf("11", "9", "38")
-                var success = false
-
-                for (mode in networkModes) {
-                    try {
-                        // Try multiple settings keys for different device types
-                        Runtime.getRuntime().exec(arrayOf("su", "-c", "settings put global preferred_network_mode1 $mode")).waitFor()
-                        Runtime.getRuntime().exec(arrayOf("su", "-c", "settings put global preferred_network_mode $mode")).waitFor()
-                        Runtime.getRuntime().exec(arrayOf("su", "-c", "settings put global preferred_network_mode2 $mode")).waitFor()
-
-                        // Alternative RIL service call approach
-                        try {
-                            Runtime.getRuntime().exec(arrayOf("su", "-c", "service call phone setPreferredNetworkType 1 i32 $mode")).waitFor()
-                            success = true
-                            break
-                        } catch (e: Exception) {
-                            // Continue with next mode
-                        }
-                    } catch (e: Exception) {
-                        // Try next mode
-                        continue
-                    }
-                }
-
-                if (success) {
-                    _syncStatus.emit("LTE forcing triggered - Network mode changed to LTE-only")
-                } else {
-                    _syncStatus.emit("WARNING: LTE forcing attempted but result unclear - manual verification recommended")
-                }
-            } catch (e: Exception) {
-                _syncStatus.emit("Failed to force LTE: Root may not be available - ${e.message}")
-            }
-        }
-    }
-
+    fun updateUseBeaconDb(value: Boolean) { _settings.update { it.copy(useBeaconDb = value) }; prefs.edit { putBoolean("use_beacon_db", value) } }
+    fun updateLogRadioMetrics(value: Boolean) { _settings.update { it.copy(logRadioMetrics = value) }; prefs.edit { putBoolean("log_radio_metrics", value) } }
+    fun updateLogSuspiciousEvents(value: Boolean) { _settings.update { it.copy(logSuspiciousEvents = value) }; prefs.edit { putBoolean("log_suspicious_events", value) } }
+    fun updateLogRootFeed(value: Boolean) { _settings.update { it.copy(logRootFeed = value) }; prefs.edit { putBoolean("log_root_feed", value) } }
+    fun updateShowBlockedEvents(value: Boolean) { _settings.update { it.copy(showBlockedEvents = value) }; prefs.edit { putBoolean("show_blocked_events", value) } }
+    fun updateSensitivity(value: Int) { _settings.update { it.copy(sensitivity = value) }; prefs.edit { putInt("sensitivity", value) } }
+    fun updateBeaconDbKey(key: String) { _settings.update { it.copy(beaconDbKey = key) }; encryptedPrefs.edit { putString("beacon_db_key", key) } }
+    fun updateOpenCellIdKey(key: String) { _settings.update { it.copy(openCellIdKey = key) }; encryptedPrefs.edit { putString("open_cell_id_key", key) } }
+    fun updateUseOpenCellId(value: Boolean) { _settings.update { it.copy(useOpenCellId = value) }; prefs.edit { putBoolean("use_open_cell_id", value) } }
+    fun updateBlockGsm(value: Boolean) { _settings.update { it.copy(blockGsm = value) }; prefs.edit { putBoolean("block_gsm", value) }; getApplication<Application>().sendBroadcast(Intent("dev.fzer0x.imsicatcherdetector2.SETTINGS_CHANGED").apply { putExtra("blockGsm", value); putExtra("reject_a50", _settings.value.rejectA50) }) }
+    fun updateRejectA50(value: Boolean) { _settings.update { it.copy(rejectA50 = value) }; prefs.edit { putBoolean("reject_a50", value) }; getApplication<Application>().sendBroadcast(Intent("dev.fzer0x.imsicatcherdetector2.SETTINGS_CHANGED").apply { putExtra("blockGsm", _settings.value.blockGsm); putExtra("reject_a50", value) }) }
+    fun updateMarkFakeCells(value: Boolean) { _settings.update { it.copy(markFakeCells = value) }; prefs.edit { putBoolean("mark_fake_cells", value) } }
+    fun updateForceLte(value: Boolean) { _settings.update { it.copy(forceLte = value) }; prefs.edit { putBoolean("force_lte", value) } }
+    fun updateAutoMitigation(value: Boolean) { _settings.update { it.copy(autoMitigation = value) }; prefs.edit { putBoolean("auto_mitigation", value) }; getApplication<Application>().sendBroadcast(Intent("dev.fzer0x.imsicatcherdetector2.SETTINGS_CHANGED").apply { putExtra("autoMitigation", value) }) }
+    fun resetRadio() { viewModelScope.launch { if (_dashboardState.value.hasRoot) { RootRepository.execute("sentry-ctl --reset-radio"); _syncStatus.emit("Radio Reset command sent") } } }
+    fun triggerPanic() { viewModelScope.launch { if (_dashboardState.value.hasRoot) { RootRepository.execute("sentry-ctl --panic"); _syncStatus.emit("PANIC MODE ACTIVATED") } } }
     fun clearLogs() { viewModelScope.launch { forensicDao.clearLogs() } }
-
-    fun exportLogsToPcap(context: Context) { }
-    fun exportLogsToJson(context: Context) { }
+    fun exportLogsToPcap(context: Context) { /* ... */ }
 }
