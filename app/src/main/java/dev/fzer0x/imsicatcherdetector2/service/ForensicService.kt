@@ -103,6 +103,19 @@ class ForensicService : Service() {
         }
     }
 
+    private val hardwareBlockingReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != "dev.fzer0x.sentry.HARDWARE_BLOCKING") return
+            val blockType = intent.getStringExtra("blockType") ?: return
+            val description = intent.getStringExtra("description") ?: ""
+            val severity = intent.getIntExtra("severity", 5)
+            val simSlot = intent.getIntExtra("simSlot", 0)
+            
+            Log.i(TAG, "Hardware blocking event: $blockType - $description")
+            recordBlockingEvent("HARDWARE_$blockType", description, severity, simSlot)
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
@@ -121,6 +134,7 @@ class ForensicService : Service() {
 
         registerReceiver(settingsReceiver, IntentFilter("dev.fzer0x.imsicatcherdetector2.SETTINGS_CHANGED"), RECEIVER_EXPORTED)
         registerReceiver(blockingEventReceiver, IntentFilter("dev.fzer0x.imsicatcherdetector2.RECORD_BLOCKING_EVENT"), RECEIVER_EXPORTED)
+        registerReceiver(hardwareBlockingReceiver, IntentFilter("dev.fzer0x.sentry.HARDWARE_BLOCKING"), RECEIVER_EXPORTED)
         registerReceiver(commandReceiver, IntentFilter("dev.fzer0x.imsicatcherdetector2.TRIGGER_HYBRID_SCAN"), RECEIVER_EXPORTED)
     }
 
@@ -237,7 +251,7 @@ class ForensicService : Service() {
             val slot = matcher.group(1).toIntOrNull() ?: 0
             val info = matcher.group(2) ?: ""
             
-            val type = if (info.contains("LTE", true)) "LTE" else if (info.contains("NR", true)) "NR" else if (info.contains("GSM", true)) "GSM" else "WCDMA"
+            val type = if (info.contains("LTE", true)) "LTE" else if (info.contains("NR", true)) "NR" else if (info.contains("GSM", true)) "GSM" else if (info.contains("WCDMA", true)) "WCDMA" else "UNKNOWN"
             val cid = extractRegexValue(info, "mCi=(-?\\d+)|mCid=(-?\\d+)|mNci=(-?\\d+)")
             val mcc = extractRegexValue(info, "mMcc=([0-9]{3})")
             val mnc = extractRegexValue(info, "mMnc=([0-9]{1,3})")

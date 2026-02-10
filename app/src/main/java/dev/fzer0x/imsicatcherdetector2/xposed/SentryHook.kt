@@ -8,7 +8,18 @@ import android.content.IntentFilter
 import android.os.Build
 import android.os.Message
 import android.os.UserHandle
-import android.telephony.*
+import android.telephony.TelephonyManager
+import android.telephony.SubscriptionManager
+import android.telephony.CellInfo
+import android.telephony.CellSignalStrength
+import android.telephony.CellSignalStrengthLte
+import android.telephony.CellSignalStrengthGsm
+import android.telephony.CellIdentity
+import android.telephony.CellIdentityLte
+import android.telephony.CellIdentityGsm
+import android.telephony.CellIdentityWcdma
+import android.telephony.CellIdentityNr
+import android.telephony.ServiceState
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
@@ -134,6 +145,35 @@ class SentryHook : IXposedHookLoadPackage {
 
                         if (rejectA50) {
                             XposedBridge.log("SentryHook: SECURITY POLICY - Initiating controlled disconnect & reconnect to prevent A5/0 exploit.")
+                            
+                            // Extract SIM slot from context or use default
+                            val simSlot = try {
+                                val telephonyManager = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+                                // Use subscription manager to get SIM slot info
+                                val subscriptionManager = context.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as SubscriptionManager
+                                val activeSubscription = try {
+                                subscriptionManager.activeSubscriptionInfoList?.firstOrNull()
+                            } catch (e: Exception) {
+                                null
+                            }
+                                activeSubscription?.simSlotIndex ?: 0
+                            } catch (e: Exception) {
+                                0 // Default to SIM 0 if extraction fails
+                            }
+                            
+                            // Record A5/0 blocking event for Audit Log
+                            try {
+                                val blockingIntent = Intent("dev.fzer0x.imsicatcherdetector2.RECORD_BLOCKING_EVENT")
+                                blockingIntent.setPackage("dev.fzer0x.imsicatcherdetector2")
+                                blockingIntent.putExtra("blockType", "A5/0_CIPHER_REJECTION")
+                                blockingIntent.putExtra("description", "A5/0 unencrypted connection blocked and forced reconnect on SIM $simSlot")
+                                blockingIntent.putExtra("severity", 10)
+                                blockingIntent.putExtra("simSlot", simSlot)
+                                context.sendBroadcast(blockingIntent)
+                            } catch (e: Exception) {
+                                XposedBridge.log("SentryHook: Failed to record A5/0 blocking event: ${e.message}")
+                            }
+                            
                             try {
                                 val phone = XposedHelpers.getObjectField(param.thisObject, "mPhone")
 
@@ -180,7 +220,7 @@ class SentryHook : IXposedHookLoadPackage {
                             val exception = XposedHelpers.getObjectField(ar, "exception")
                             val result = XposedHelpers.getObjectField(ar, "result")
                             if (exception == null && result != null) {
-                                val states = result as? Array<String>
+                                val states = (result as? Array<String>) ?: emptyArray()
                                 if (states != null && states.size > 13) {
                                     val rejectCause = states[13].toIntOrNull() ?: 0
                                     if (rejectCause != 0) {
@@ -192,6 +232,19 @@ class SentryHook : IXposedHookLoadPackage {
                                             putExtra("simSlot", simSlot)
                                         }
                                         sendForensicBroadcast(context, intent)
+                                        
+                                        // Record network reject as blocked event for Audit Log
+                                        try {
+                                            val blockingIntent = Intent("dev.fzer0x.imsicatcherdetector2.RECORD_BLOCKING_EVENT")
+                                            blockingIntent.setPackage("dev.fzer0x.imsicatcherdetector2")
+                                            blockingIntent.putExtra("blockType", "NETWORK_REJECT")
+                                            blockingIntent.putExtra("description", "Network registration rejected with cause #$rejectCause on SIM $simSlot")
+                                            blockingIntent.putExtra("severity", 9)
+                                            blockingIntent.putExtra("simSlot", simSlot)
+                                            context.sendBroadcast(blockingIntent)
+                                        } catch (e: Exception) {
+                                            XposedBridge.log("SentryHook: Failed to record network reject blocking event: ${e.message}")
+                                        }
                                     }
                                 }
                             }
@@ -237,7 +290,7 @@ class SentryHook : IXposedHookLoadPackage {
                         } catch (e: Exception) {}
                     }
 
-                    val lastCellInfo = XposedHelpers.callMethod(mSST, "getAllCellInfo") as? List<CellInfo>
+                    val lastCellInfo = (XposedHelpers.callMethod(mSST, "getAllCellInfo") as? List<CellInfo>) ?: emptyList()
                     if (!lastCellInfo.isNullOrEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                         processCellInfo(context, lastCellInfo, simSlot)
                     }
@@ -261,7 +314,7 @@ class SentryHook : IXposedHookLoadPackage {
             XposedBridge.hookAllMethods(registryClass, "notifyCellInfoForSubscriber", object : XC_MethodHook() {
                 override fun beforeHookedMethod(param: MethodHookParam) {
                     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
-                    val cellInfoList = param.args.firstOrNull { it is List<*> } as? List<CellInfo> ?: return
+                    val cellInfoList = (param.args.firstOrNull { it is List<*> } as? List<CellInfo>) ?: return
                     val context = XposedHelpers.getObjectField(param.thisObject, "mContext") as Context
                     val subId = param.args[0] as Int
                     val simSlot = getSlotIndex(context, subId)
@@ -290,7 +343,7 @@ class SentryHook : IXposedHookLoadPackage {
                         val context = XposedHelpers.getObjectField(param.thisObject, "mContext") as Context
                         val phone = XposedHelpers.getObjectField(param.thisObject, "mPhone")
                         val simSlot = XposedHelpers.callMethod(phone, "getPhoneId") as Int
-                        val pdus = param.args[0] as Array<ByteArray>
+                        val pdus = (param.args[0] as? Array<ByteArray>) ?: emptyArray()
                         val format = param.args[1] as String
                         val smsMessageClass = XposedHelpers.findClass("android.telephony.SmsMessage", lpparam.classLoader)
                         
@@ -395,8 +448,12 @@ class SentryHook : IXposedHookLoadPackage {
         var dbm = -120
         var ta = -1
         try {
-            val css = XposedHelpers.callMethod(activeCell, "getCellSignalStrength")
-            dbm = XposedHelpers.callMethod(css, "getDbm") as Int
+            val css = activeCell.cellSignalStrength
+            dbm = when (css) {
+                is CellSignalStrengthLte -> css.rsrp
+                is CellSignalStrengthGsm -> css.dbm
+                else -> -120
+            }
             ta = when (css) {
                 is CellSignalStrengthLte -> css.timingAdvance
                 is CellSignalStrengthGsm -> css.bitErrorRate

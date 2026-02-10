@@ -16,9 +16,15 @@ case $COMMAND in
             settings put global preferred_network_mode 11
             settings put global preferred_network_mode1 11
             settings put global preferred_network_mode2 11
+            
+            # Broadcast hardware forcing event to app
+            am broadcast -a dev.fzer0x.sentry.HARDWARE_BLOCKING --es blockType "LTE_FORCE" --es description "Hardware-level LTE-only mode enabled" --ei severity 6 --ei simSlot 0
         else
             log_action "Restoring default network"
             settings put global preferred_network_mode 9
+            
+            # Broadcast hardware forcing event to app
+            am broadcast -a dev.fzer0x.sentry.HARDWARE_BLOCKING --es blockType "LTE_FORCE" --es description "Hardware-level LTE-only mode disabled" --ei severity 6 --ei simSlot 0
         fi
         ;;
     "--reset-radio")
@@ -144,10 +150,22 @@ case $COMMAND in
         log_action "EXTENDED PANIC COMPLETE - Full system lockdown active"
         ;;
     "--block-2g")
+        CURRENT_VALUE=$(getprop persist.radio.block_gsm)
         setprop persist.radio.block_gsm $([ "$VALUE" == "true" ] && echo 1 || echo 0)
+        
+        # Broadcast hardware blocking event to app
+        if [ "$CURRENT_VALUE" != "$([ "$VALUE" == "true" ] && echo 1 || echo 0)" ]; then
+            am broadcast -a dev.fzer0x.sentry.HARDWARE_BLOCKING --es blockType "GSM_BLOCK" --es description "Hardware-level GSM blocking ${VALUE}" --ei severity 8 --ei simSlot 0
+        fi
         ;;
     "--reject-a50")
+        CURRENT_VALUE=$(getprop persist.radio.reject_a50)
         setprop persist.radio.reject_a50 $([ "$VALUE" == "true" ] && echo 1 || echo 0)
+        
+        # Broadcast hardware blocking event to app
+        if [ "$CURRENT_VALUE" != "$([ "$VALUE" == "true" ] && echo 1 || echo 0)" ]; then
+            am broadcast -a dev.fzer0x.sentry.HARDWARE_BLOCKING --es blockType "A5/0_REJECT" --es description "Hardware-level A5/0 cipher rejection ${VALUE}" --ei severity 10 --ei simSlot 0
+        fi
         ;;
     "--telemetry")
         echo "--- Snapdragon Modem Telemetry ---"

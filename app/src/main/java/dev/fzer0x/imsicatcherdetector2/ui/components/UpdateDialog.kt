@@ -148,9 +148,17 @@ fun UpdateDialog(
                 Spacer(modifier = Modifier.height(8.dp))
                 
                 Text(
-                    "https://github.com/fzer0x/SentryRadio/releases",
+                    "https://github.com/fzer0x/SentryRadio",
+
                     color = Color.Cyan,
                     fontSize = 12.sp,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    "⚠\uFE0F Make sure it's the Official Repository ⚠\uFE0F",
+
+                    color = Color.Red,
+                    fontSize = 13.sp,
                     modifier = Modifier.fillMaxWidth()
                 )
                 
