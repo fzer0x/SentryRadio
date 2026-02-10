@@ -95,7 +95,10 @@ data class DashboardState(
     val detectedChipset: String = "Unknown",
     val detectedBaseband: String = "Unknown",
     val lastCveUpdate: String = "Never",
-    val securityPatch: String = "Unknown"
+    val securityPatch: String = "Unknown",
+    val moduleUpdateAvailable: Boolean = false,
+    val currentModuleVersion: String = "Not installed",
+    val availableModuleVersion: String = ""
 )
 
 class ForensicViewModel(application: Application) : AndroidViewModel(application) {
@@ -177,7 +180,11 @@ class ForensicViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun isXposedModuleActive(): Boolean = false
+    fun isXposedModuleActive(): Boolean {
+        // This method is hooked by our Xposed module to return true
+        // If the hook is active, it will override this return value
+        return false
+    }
 
     private fun updateSimState(logs: List<ForensicEvent>, slot: Int, current: SimState): SimState {
         val simLogs = logs.filter { it.simSlot == slot }
@@ -354,13 +361,84 @@ class ForensicViewModel(application: Application) : AndroidViewModel(application
             val hasRoot = RootRepository.isRootAvailable()
             val isModule = if (hasRoot) RootRepository.fileExists("/data/adb/modules/sentry_radio_hardening/module.prop") else false
             val isXposed = isXposedModuleActive()
-            _dashboardState.update { it.copy(hasRoot = hasRoot, isHardeningModuleActive = isModule, isXposedActive = isXposed) }
+            
+            // Check module version and updates
+            val moduleUpdateInfo = checkModuleUpdate(hasRoot, isModule)
+            
+            _dashboardState.update { 
+                it.copy(
+                    hasRoot = hasRoot, 
+                    isHardeningModuleActive = isModule, 
+                    isXposedActive = isXposed,
+                    moduleUpdateAvailable = moduleUpdateInfo.updateAvailable,
+                    currentModuleVersion = moduleUpdateInfo.currentVersion,
+                    availableModuleVersion = moduleUpdateInfo.availableVersion
+                ) 
+            }
             if (hasRoot) performFingerprinting()
             else {
                 // Perform non-root fingerprinting if possible
                 performFingerprinting()
             }
         }
+    }
+
+    private data class ModuleUpdateInfo(
+        val updateAvailable: Boolean,
+        val currentVersion: String,
+        val availableVersion: String
+    )
+
+    private suspend fun checkModuleUpdate(hasRoot: Boolean, isModuleInstalled: Boolean): ModuleUpdateInfo {
+        if (!hasRoot || !isModuleInstalled) {
+            return ModuleUpdateInfo(
+                updateAvailable = false,
+                currentVersion = "Not installed",
+                availableVersion = ""
+            )
+        }
+
+        return try {
+            // Get current installed module version
+            val installedModuleProp = RootRepository.execute("cat /data/adb/modules/sentry_radio_hardening/module.prop").output
+            val currentVersionCode = extractVersionCode(installedModuleProp)
+            val currentVersion = extractVersion(installedModuleProp)
+
+            // Get available module version from assets
+            val assetManager = getApplication<Application>().assets
+            val availableModuleProp = assetManager.open("sentry_module/module.prop").bufferedReader().readText()
+            val availableVersionCode = extractVersionCode(availableModuleProp)
+            val availableVersion = extractVersion(availableModuleProp)
+
+            val updateAvailable = availableVersionCode > currentVersionCode
+
+            ModuleUpdateInfo(
+                updateAvailable = updateAvailable,
+                currentVersion = if (currentVersionCode > 0) currentVersion else "Unknown",
+                availableVersion = if (updateAvailable) availableVersion else ""
+            )
+        } catch (e: Exception) {
+            ModuleUpdateInfo(
+                updateAvailable = false,
+                currentVersion = "Error reading version",
+                availableVersion = ""
+            )
+        }
+    }
+
+    private fun extractVersionCode(moduleProp: String): Int {
+        return moduleProp.lines()
+            .find { it.startsWith("versionCode=") }
+            ?.substringAfter("versionCode=")
+            ?.trim()
+            ?.toIntOrNull() ?: 0
+    }
+
+    private fun extractVersion(moduleProp: String): String {
+        return moduleProp.lines()
+            .find { it.startsWith("version=") }
+            ?.substringAfter("version=")
+            ?.trim() ?: "Unknown"
     }
 
     private suspend fun performFingerprinting() {

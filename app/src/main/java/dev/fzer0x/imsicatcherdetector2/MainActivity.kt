@@ -793,17 +793,44 @@ fun SettingsScreen(viewModel: ForensicViewModel) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Check, contentDescription = null, tint = Color.Green)
                             Spacer(Modifier.width(8.dp))
-                            Text("Module installed and active", color = Color.Green, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Column {
+                                Text("Module installed and active", color = Color.Green, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text("Version: ${dashboardState.currentModuleVersion}", color = Color.Gray, fontSize = 11.sp)
+                            }
                         }
+                        
+                        // Show update notification if available
+                        if (dashboardState.moduleUpdateAvailable) {
+                            Spacer(Modifier.height(12.dp))
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFFFF9800).copy(alpha = 0.2f)),
+                                border = BorderStroke(1.dp, Color(0xFFFF9800))
+                            ) {
+                                Column(Modifier.padding(12.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Info, contentDescription = null, tint = Color(0xFFFF9800), modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("UPDATE AVAILABLE", color = Color(0xFFFF9800), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+                                    Spacer(Modifier.height(4.dp))
+                                    Text("New version: ${dashboardState.availableModuleVersion}", color = Color.White, fontSize = 11.sp)
+                                }
+                            }
+                        }
+                        
                         Spacer(Modifier.height(12.dp))
                         Button(
                             onClick = { viewModel.installHardeningModule(context) },
                             modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.Gray, contentColor = Color.White)
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (dashboardState.moduleUpdateAvailable) Color(0xFFFF9800) else Color.Gray,
+                                contentColor = Color.White
+                            )
                         ) {
                             Icon(Icons.Default.Refresh, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
-                            Text("UPDATE / REINSTALL MODULE", fontWeight = FontWeight.Bold)
+                            Text(if (dashboardState.moduleUpdateAvailable) "UPDATE MODULE" else "REINSTALL MODULE", fontWeight = FontWeight.Bold)
                         }
                     } else if (dashboardState.hasRoot) {
                         Button(
