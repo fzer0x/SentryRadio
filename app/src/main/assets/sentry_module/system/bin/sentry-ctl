@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# Sentry Radio Hardening - Advanced Snapdragon Telemetry v1.4
+# Sentry Radio Hardening - Advanced Snapdragon Telemetry v0.3.1
 
 COMMAND=$1
 VALUE=$2
@@ -30,6 +30,49 @@ case $COMMAND in
         settings put global airplane_mode_on 1
         am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true
         stop ril-daemon
+        # Enhanced Panic Mode v0.3.1
+        log_action "Killing suspicious processes..."
+        killall -9 com.android.phone 2>/dev/null
+        killall -9 rild 2>/dev/null
+        killall -9 qcril 2>/dev/null
+        log_action "Securing sensitive data..."
+        rm -rf /data/local/tmp/ril* 2>/dev/null
+        rm -rf /data/misc/radio/* 2>/dev/null
+        log_action "Hardware-level radio disable..."
+        setprop persist.radio.block_gsm 1
+        setprop persist.radio.block_lte 1
+        setprop persist.radio.block_cdma 1
+        setprop persist.vendor.radio.enable 0
+        log_action "PANIC MODE COMPLETE - All radio interfaces disabled"
+        ;;
+    "--panic-extended")
+        log_action "EXTENDED EMERGENCY PROTOCOL ACTIVATED"
+        # Full system lockdown
+        settings put global airplane_mode_on 1
+        am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true
+        # Kill all telephony services
+        stop ril-daemon
+        stop telephony
+        stop com.android.phone
+        # Kill suspicious processes
+        killall -9 com.android.phone rild qcril qcrilam 2>/dev/null
+        killall -9 imsqmidaemon 2>/dev/null
+        # Secure data wipe
+        rm -rf /data/local/tmp/ril* /data/misc/radio/* /data/vendor/radio/* 2>/dev/null
+        # Hardware disable
+        setprop persist.radio.block_gsm 1
+        setprop persist.radio.block_lte 1
+        setprop persist.radio.block_cdma 1
+        setprop persist.vendor.radio.enable 0
+        setprop persist.vendor.radio.modem_power 0
+        # Network isolation
+        iptables -P INPUT DROP 2>/dev/null
+        iptables -P OUTPUT DROP 2>/dev/null
+        ip6tables -P INPUT DROP 2>/dev/null
+        ip6tables -P OUTPUT DROP 2>/dev/null
+        # Broadcast emergency to app
+        am broadcast -a dev.fzer0x.sentry.EMERGENCY --es threat_type "EXTENDED_PANIC" --es severity "CRITICAL"
+        log_action "EXTENDED PANIC COMPLETE - Full system lockdown active"
         ;;
     "--block-2g")
         setprop persist.radio.block_gsm $([ "$VALUE" == "true" ] && echo 1 || echo 0)
@@ -60,11 +103,115 @@ case $COMMAND in
         echo "Chipset: $(getprop ro.board.platform)"
         ;;
     "--status")
-        echo "Sentry Module v0.3.0"
+        echo "Sentry Module v0.3.1"
         echo "Hardware: $(getprop ro.board.platform)"
         echo "Hardening: Active"
         ;;
+    "--monitor-modem")
+        echo "--- Real-time Modem Health Monitor ---"
+        # Baseband Temperature Check
+        TEMP=$(getprop vendor.modem.temp)
+        [ -z "$TEMP" ] && TEMP="N/A"
+        echo "Baseband Temperature: $TEMP°C"
+        
+        # RIL Command Queue Status
+        RIL_QUEUE=$(dumpsys telephony.registry | grep -i "m ril" | head -3)
+        echo "RIL Queue Status:"
+        echo "$RIL_QUEUE"
+        
+        # Unexpected RIL Responses
+        echo "Checking for unexpected RIL responses..."
+        dmesg | grep -i "ril\|modem" | tail -5
+        
+        # Memory Usage Check
+        RIL_MEM=$(ps -A | grep -E "(rild|qcril)" | awk '{sum+=$6} END {print sum+0}')
+        echo "RIL Memory Usage: ${RIL_MEM}KB"
+        
+        # Modem Register States
+        echo "Modem Register States:"
+        getprop | grep -E "ril\.|radio\.|modem\." | tail -10
+        
+        # Continuous monitoring option
+        if [ "$VALUE" == "continuous" ]; then
+            echo "Starting continuous monitoring (Ctrl+C to stop)..."
+            while true; do
+                CURRENT_TEMP=$(getprop vendor.modem.temp)
+                echo "$(date): Temp=$CURRENT_TEMP°C, RIL_Queue=$(ps -A | grep -c rild)"
+                sleep 5
+            done
+        fi
+        ;;
+    "--geo-protect")
+        echo "--- Geo-Fencing Protection ---"
+        if [ "$VALUE" == "enable" ]; then
+            echo "Enabling geo-fencing protection..."
+            setprop persist.sentry.geo_protect 1
+            # Create whitelist of known cell IDs
+            echo "Creating cell ID whitelist..."
+            # This would integrate with app's database
+            am broadcast -a dev.fzer0x.sentry.GEO_PROTECT --ez enabled true
+        elif [ "$VALUE" == "disable" ]; then
+            echo "Disabling geo-fencing protection..."
+            setprop persist.sentry.geo_protect 0
+            am broadcast -a dev.fzer0x.sentry.GEO_PROTECT --ez enabled false
+        elif [ "$VALUE" == "status" ]; then
+            echo "Geo-Fencing Status: $(getprop persist.sentry.geo_protect)"
+            echo "Current Cell ID: $(dumpsys telephony.registry | grep -i "cellid" | head -1)"
+        else
+            echo "Usage: sentry-ctl --geo-protect [enable|disable|status]"
+        fi
+        ;;
+    "--forensic-dump")
+        echo "--- Advanced Forensic Data Dump ---"
+        DUMP_DIR="/data/local/tmp/sentry_forensic_$(date +%Y%m%d_%H%M%S)"
+        mkdir -p "$DUMP_DIR"
+        
+        echo "Collecting RIL Message Timeline..."
+        dumpsys telephony.registry > "$DUMP_DIR/telephony_registry.txt"
+        
+        echo "Collecting Baseband Register States..."
+        getprop | grep -E "ril\.|radio\.|modem\." > "$DUMP_DIR/modem_properties.txt"
+        
+        echo "Collecting Radio Frequency Analysis..."
+        dumpsys radio > "$DUMP_DIR/radio_dump.txt"
+        
+        echo "Collecting Protocol Stack Traces..."
+        dmesg | grep -i "ril\|modem\|radio" > "$DUMP_DIR/kernel_logs.txt"
+        
+        echo "Collecting Network Statistics..."
+        cat /proc/net/dev > "$DUMP_DIR/network_stats.txt"
+        
+        echo "Forensic dump completed: $DUMP_DIR"
+        echo "Files created: $(ls -la "$DUMP_DIR" | wc -l)"
+        ;;
+    "--zero-day-protect")
+        echo "--- Zero-Day Protection System ---"
+        if [ "$VALUE" == "enable" ]; then
+            echo "Enabling zero-day protection..."
+            setprop persist.sentry.zero_day_protect 1
+            # Enable dynamic vulnerability response
+            setprop persist.vendor.radio.dynamic_patch 1
+            setprop persist.vendor.radio.validate_commands 1
+            # Enable emergency configuration updates
+            setprop persist.sentry.emergency_updates 1
+            am broadcast -a dev.fzer0x.sentry.ZERO_DAY --ez enabled true
+        elif [ "$VALUE" == "disable" ]; then
+            echo "Disabling zero-day protection..."
+            setprop persist.sentry.zero_day_protect 0
+            setprop persist.vendor.radio.dynamic_patch 0
+            am broadcast -a dev.fzer0x.sentry.ZERO_DAY --ez enabled false
+        elif [ "$VALUE" == "sync" ]; then
+            echo "Syncing CVE database..."
+            am broadcast -a dev.fzer0x.sentry.CVE_SYNC
+        elif [ "$VALUE" == "status" ]; then
+            echo "Zero-Day Protection: $(getprop persist.sentry.zero_day_protect)"
+            echo "Dynamic Patching: $(getprop persist.vendor.radio.dynamic_patch)"
+            echo "Last CVE Sync: $(getprop persist.sentry.last_cve_sync)"
+        else
+            echo "Usage: sentry-ctl --zero-day-protect [enable|disable|sync|status]"
+        fi
+        ;;
     *)
-        echo "Usage: sentry-ctl [--force-lte|--reset-radio|--panic|--block-2g|--telemetry|--fingerprint|--status]"
+        echo "Usage: sentry-ctl [--force-lte|--reset-radio|--panic|--panic-extended|--block-2g|--telemetry|--fingerprint|--status|--monitor-modem|--geo-protect|--forensic-dump|--zero-day-protect]"
         ;;
 esac

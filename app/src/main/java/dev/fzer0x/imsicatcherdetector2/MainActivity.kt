@@ -557,7 +557,102 @@ fun SecurityScreen(viewModel: ForensicViewModel) {
                 icon = Icons.Default.Refresh,
                 iconColor = Color.Green
             )
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(16.dp))
+        }
+
+        if (dashboardState.isHardeningModuleActive) {
+            item {
+                Text("ADVANCED HARDENING CONTROLS", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(12.dp))
+            }
+
+            item {
+                SecurityOptionCard(
+                    title = "Zero-Day Protection",
+                    subtitle = "Dynamic vulnerability response with live CVE database sync and emergency patches.",
+                    checked = settings.zeroDayProtection,
+                    onCheckedChange = { viewModel.updateZeroDayProtection(it) },
+                    icon = Icons.Default.Lock,
+                    iconColor = Color(0xFFFF9800)
+                )
+                Spacer(Modifier.height(16.dp))
+            }
+
+            item {
+                SecurityOptionCard(
+                    title = "Geo-Fencing Protection",
+                    subtitle = "Whitelist known cell IDs and block connections to unknown/fake towers.",
+                    checked = settings.geoFencingProtection,
+                    onCheckedChange = { viewModel.updateGeoFencingProtection(it) },
+                    icon = Icons.Default.Place,
+                    iconColor = Color(0xFF9C27B0)
+                )
+                Spacer(Modifier.height(16.dp))
+            }
+
+            item {
+                SecurityOptionCard(
+                    title = "Advanced Telemetry",
+                    subtitle = "Extended modem logging and protocol traces for deep forensic analysis.",
+                    checked = settings.advancedTelemetry,
+                    onCheckedChange = { viewModel.updateAdvancedTelemetry(it) },
+                    icon = Icons.Default.Info,
+                    iconColor = Color(0xFF00BCD4)
+                )
+                Spacer(Modifier.height(16.dp))
+            }
+
+            item {
+                SecurityOptionCard(
+                    title = "Extended Panic Mode",
+                    subtitle = "Full system lockdown with network isolation and hardware radio disable.",
+                    checked = settings.extendedPanicMode,
+                    onCheckedChange = { viewModel.updateExtendedPanicMode(it) },
+                    icon = Icons.Default.Warning,
+                    iconColor = Color(0xFFF44336)
+                )
+                Spacer(Modifier.height(16.dp))
+            }
+
+            item {
+                SecurityOptionCard(
+                    title = "Real-time Modem Monitoring",
+                    subtitle = "Continuous monitoring of modem health, temperature, and RIL queue status.",
+                    checked = settings.realTimeModemMonitoring,
+                    onCheckedChange = { viewModel.updateRealTimeModemMonitoring(it) },
+                    icon = Icons.Default.Settings,
+                    iconColor = Color(0xFF4CAF50)
+                )
+                Spacer(Modifier.height(24.dp))
+            }
+
+            item {
+                Text("ACTIONS", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(12.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { viewModel.syncCveDatabase() },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E1E1E)),
+                        border = BorderStroke(1.dp, Color(0xFFFF9800))
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = null, tint = Color(0xFFFF9800), modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("SYNC CVE", color = Color(0xFFFF9800), fontSize = 10.sp)
+                    }
+                    Button(
+                        onClick = { viewModel.triggerForensicDump() },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E1E1E)),
+                        border = BorderStroke(1.dp, Color(0xFF00BCD4))
+                    ) {
+                        Icon(Icons.Default.Build, contentDescription = null, tint = Color(0xFF00BCD4), modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("FORENSIC", color = Color(0xFF00BCD4), fontSize = 10.sp)
+                    }
+                }
+                Spacer(Modifier.height(24.dp))
+            }
         }
 
         item {

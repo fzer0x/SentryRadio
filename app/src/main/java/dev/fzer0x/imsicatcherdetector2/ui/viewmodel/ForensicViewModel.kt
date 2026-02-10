@@ -53,7 +53,12 @@ data class UserSettings(
     val rejectA50: Boolean = false,
     val markFakeCells: Boolean = true,
     val forceLte: Boolean = false,
-    val autoMitigation: Boolean = false
+    val autoMitigation: Boolean = false,
+    val zeroDayProtection: Boolean = false,
+    val geoFencingProtection: Boolean = false,
+    val advancedTelemetry: Boolean = false,
+    val extendedPanicMode: Boolean = false,
+    val realTimeModemMonitoring: Boolean = false
 )
 
 data class SimState(
@@ -379,9 +384,13 @@ class ForensicViewModel(application: Application) : AndroidViewModel(application
         
         val vulns = vulnerabilityManager.checkVulnerabilities(chipset, baseband, securityPatch)
         
-        // Get last CVE update time from DAO
+        // Get last CVE update time from DAO and manual sync
         val allCached = forensicDao.getAllCves()
-        val lastUpdateMillis = allCached.maxOfOrNull { it.lastUpdated } ?: 0L
+        val lastDbUpdateMillis = allCached.maxOfOrNull { it.lastUpdated } ?: 0L
+        val lastManualSyncMillis = prefs.getLong("last_cve_sync_manual", 0L)
+        
+        // Use the most recent time
+        val lastUpdateMillis = if (lastDbUpdateMillis > lastManualSyncMillis) lastDbUpdateMillis else lastManualSyncMillis
         val lastUpdateStr = if (lastUpdateMillis > 0) {
             SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(lastUpdateMillis))
         } else {
@@ -419,7 +428,7 @@ class ForensicViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun loadSettings() = UserSettings(
-        updateRate = prefs.getInt("update_rate", 15), sensitivity = prefs.getInt("sensitivity", 1), logRootFeed = prefs.getBoolean("log_root_feed", false), logRadioMetrics = prefs.getBoolean("log_radio_metrics", false), logSuspiciousEvents = prefs.getBoolean("log_suspicious_events", false), autoPcap = prefs.getBoolean("auto_pcap", true), alarmSound = prefs.getBoolean("alarm_sound", true), alarmVibe = prefs.getBoolean("alarm_vibe", true), beaconDbKey = encryptedPrefs.getString("beacon_db_key", "") ?: "", openCellIdKey = encryptedPrefs.getString("open_cell_id_key", "") ?: "", useBeaconDb = prefs.getBoolean("use_beacon_db", true), useOpenCellId = prefs.getBoolean("use_open_cell_id", false), showBlockedEvents = prefs.getBoolean("show_blocked_events", false), blockGsm = prefs.getBoolean("block_gsm", false), rejectA50 = prefs.getBoolean("reject_a50", false), markFakeCells = prefs.getBoolean("mark_fake_cells", true), forceLte = prefs.getBoolean("force_lte", false), autoMitigation = prefs.getBoolean("auto_mitigation", false)
+        updateRate = prefs.getInt("update_rate", 15), sensitivity = prefs.getInt("sensitivity", 1), logRootFeed = prefs.getBoolean("log_root_feed", false), logRadioMetrics = prefs.getBoolean("log_radio_metrics", false), logSuspiciousEvents = prefs.getBoolean("log_suspicious_events", false), autoPcap = prefs.getBoolean("auto_pcap", true), alarmSound = prefs.getBoolean("alarm_sound", true), alarmVibe = prefs.getBoolean("alarm_vibe", true), beaconDbKey = encryptedPrefs.getString("beacon_db_key", "") ?: "", openCellIdKey = encryptedPrefs.getString("open_cell_id_key", "") ?: "", useBeaconDb = prefs.getBoolean("use_beacon_db", true), useOpenCellId = prefs.getBoolean("use_open_cell_id", false), showBlockedEvents = prefs.getBoolean("show_blocked_events", false), blockGsm = prefs.getBoolean("block_gsm", false), rejectA50 = prefs.getBoolean("reject_a50", false), markFakeCells = prefs.getBoolean("mark_fake_cells", true), forceLte = prefs.getBoolean("force_lte", false), autoMitigation = prefs.getBoolean("auto_mitigation", false), zeroDayProtection = prefs.getBoolean("zero_day_protection", false), geoFencingProtection = prefs.getBoolean("geo_fencing_protection", false), advancedTelemetry = prefs.getBoolean("advanced_telemetry", false), extendedPanicMode = prefs.getBoolean("extended_panic_mode", false), realTimeModemMonitoring = prefs.getBoolean("real_time_modem_monitoring", false)
     )
 
     fun updateUseBeaconDb(value: Boolean) { _settings.update { it.copy(useBeaconDb = value) }; prefs.edit { putBoolean("use_beacon_db", value) } }
@@ -436,8 +445,85 @@ class ForensicViewModel(application: Application) : AndroidViewModel(application
     fun updateMarkFakeCells(value: Boolean) { _settings.update { it.copy(markFakeCells = value) }; prefs.edit { putBoolean("mark_fake_cells", value) } }
     fun updateForceLte(value: Boolean) { _settings.update { it.copy(forceLte = value) }; prefs.edit { putBoolean("force_lte", value) } }
     fun updateAutoMitigation(value: Boolean) { _settings.update { it.copy(autoMitigation = value) }; prefs.edit { putBoolean("auto_mitigation", value) }; getApplication<Application>().sendBroadcast(Intent("dev.fzer0x.imsicatcherdetector2.SETTINGS_CHANGED").apply { putExtra("autoMitigation", value) }) }
+    fun updateZeroDayProtection(value: Boolean) { _settings.update { it.copy(zeroDayProtection = value) }; prefs.edit { putBoolean("zero_day_protection", value) }
+        if (_dashboardState.value.isHardeningModuleActive) {
+            viewModelScope.launch {
+                val action = if (value) "enable" else "disable"
+                RootRepository.execute("sentry-ctl --zero-day-protect $action")
+                _syncStatus.emit("Zero-Day Protection ${if (value) "enabled" else "disabled"}")
+            }
+        }
+    }
+    fun updateGeoFencingProtection(value: Boolean) { _settings.update { it.copy(geoFencingProtection = value) }; prefs.edit { putBoolean("geo_fencing_protection", value) }
+        if (_dashboardState.value.isHardeningModuleActive) {
+            viewModelScope.launch {
+                val action = if (value) "enable" else "disable"
+                RootRepository.execute("sentry-ctl --geo-protect $action")
+                _syncStatus.emit("Geo-Fencing Protection ${if (value) "enabled" else "disabled"}")
+            }
+        }
+    }
+    fun updateAdvancedTelemetry(value: Boolean) { _settings.update { it.copy(advancedTelemetry = value) }; prefs.edit { putBoolean("advanced_telemetry", value) }
+        if (_dashboardState.value.isHardeningModuleActive) {
+            viewModelScope.launch {
+                RootRepository.execute("setprop persist.sentry.advanced_telemetry ${if (value) 1 else 0}")
+                _syncStatus.emit("Advanced Telemetry ${if (value) "enabled" else "disabled"}")
+            }
+        }
+    }
+    fun updateExtendedPanicMode(value: Boolean) { _settings.update { it.copy(extendedPanicMode = value) }; prefs.edit { putBoolean("extended_panic_mode", value) }
+        if (_dashboardState.value.isHardeningModuleActive) {
+            viewModelScope.launch {
+                RootRepository.execute("setprop persist.sentry.panic_extended ${if (value) 1 else 0}")
+                _syncStatus.emit("Extended Panic Mode ${if (value) "enabled" else "disabled"}")
+            }
+        }
+    }
+    fun updateRealTimeModemMonitoring(value: Boolean) { _settings.update { it.copy(realTimeModemMonitoring = value) }; prefs.edit { putBoolean("real_time_modem_monitoring", value) }
+        if (_dashboardState.value.isHardeningModuleActive) {
+            viewModelScope.launch {
+                RootRepository.execute("setprop persist.sentry.continuous_monitor ${if (value) 1 else 0}")
+                _syncStatus.emit("Real-time Modem Monitoring ${if (value) "enabled" else "disabled"}")
+            }
+        }
+    }
     fun resetRadio() { viewModelScope.launch { if (_dashboardState.value.hasRoot) { RootRepository.execute("sentry-ctl --reset-radio"); _syncStatus.emit("Radio Reset command sent") } } }
-    fun triggerPanic() { viewModelScope.launch { if (_dashboardState.value.hasRoot) { RootRepository.execute("sentry-ctl --panic"); _syncStatus.emit("PANIC MODE ACTIVATED") } } }
+    fun triggerPanic() { viewModelScope.launch { if (_dashboardState.value.hasRoot) { 
+        if (_settings.value.extendedPanicMode) {
+            RootRepository.execute("sentry-ctl --panic-extended")
+            _syncStatus.emit("EXTENDED PANIC MODE ACTIVATED")
+        } else {
+            RootRepository.execute("sentry-ctl --panic")
+            _syncStatus.emit("PANIC MODE ACTIVATED")
+        }
+    } } }
+    fun triggerForensicDump() { viewModelScope.launch { if (_dashboardState.value.hasRoot && _dashboardState.value.isHardeningModuleActive) { 
+        RootRepository.execute("sentry-ctl --forensic-dump")
+        _syncStatus.emit("Forensic dump completed")
+    } else {
+        _syncStatus.emit("Forensic dump requires hardening module")
+    } } }
+    fun syncCveDatabase() { viewModelScope.launch { if (_dashboardState.value.hasRoot && _dashboardState.value.isHardeningModuleActive) { 
+        RootRepository.execute("sentry-ctl --zero-day-protect sync")
+        _syncStatus.emit("CVE database sync initiated")
+        
+        // Update the last CVE sync time immediately and persist it
+        val currentTime = System.currentTimeMillis()
+        val currentTimeStr = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(currentTime))
+        
+        // Save to persistent storage
+        prefs.edit { putLong("last_cve_sync_manual", currentTime) }
+        
+        // Update dashboard state
+        _dashboardState.update { it.copy(lastCveUpdate = currentTimeStr) }
+        
+        // Also trigger a vulnerability check to refresh the data
+        performFingerprinting()
+        
+        _syncStatus.emit("CVE database sync completed at $currentTimeStr")
+    } else {
+        _syncStatus.emit("CVE sync requires hardening module")
+    } } }
     fun clearLogs() { viewModelScope.launch { forensicDao.clearLogs() } }
     fun exportLogsToPcap(context: Context) { /* ... */ }
 }

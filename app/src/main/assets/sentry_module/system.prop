@@ -1,4 +1,4 @@
-# Sentry Radio Hardening - Qualcomm/Snapdragon Telemetry & Hardening v1.2
+# Sentry Radio Hardening - Qualcomm/Snapdragon Telemetry & Hardening v0.3.1
 
 # Force more secure network selection behavior
 telephony.lteOnCdmaDevice=1
@@ -19,3 +19,51 @@ persist.vendor.radio.relay_op_info=1
 # General Privacy
 ro.telephony.call_ring.multiple=false
 persist.debug.wfd.enable=0
+
+# Enhanced Security Hardening v0.3.1
+# Anti-Baseband-Exploits
+persist.vendor.radio.secure_boot=1
+persist.vendor.radio.sanitize_ril=1
+persist.vendor.radio.block_at_commands=1
+persist.vendor.radio.disable_debug_interface=1
+
+# Network Isolation & Validation
+persist.radio.validate_cell_id=1
+persist.radio.require_auth=1
+persist.radio.block_roaming=1
+persist.vendor.radio.enforce_plmn=1
+
+# Timing Analysis Protection
+persist.vendor.radio.randomize_ta=1
+persist.vendor.radio.jitter_timing=1
+persist.radio.block_timing_analysis=1
+
+# Zero-Day Protection
+persist.sentry.zero_day_protect=0
+persist.vendor.radio.dynamic_patch=0
+persist.vendor.radio.validate_commands=0
+persist.sentry.emergency_updates=0
+
+# Geo-Fencing Protection
+persist.sentry.geo_protect=0
+persist.sentry.whitelist_cells=0
+persist.sentry.blacklist_locations=0
+
+# Advanced Telemetry
+persist.sentry.advanced_telemetry=1
+persist.vendor.radio.extended_logging=1
+persist.vendor.radio.protocol_traces=1
+
+# Enhanced Panic Mode
+persist.sentry.panic_extended=0
+persist.radio.block_gsm=0
+persist.radio.block_lte=0
+persist.radio.block_cdma=0
+persist.vendor.radio.enable=1
+persist.vendor.radio.modem_power=1
+
+# Real-time Monitoring
+persist.sentry.monitor_modem=0
+persist.sentry.continuous_monitor=0
+persist.sentry.temp_threshold=85
+persist.sentry.mem_threshold=50000

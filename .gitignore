@@ -26,3 +26,87 @@ replay_pid*
 
 # Kotlin Gradle plugin data, see https://kotlinlang.org/docs/whatsnew20.html#new-directory-for-kotlin-data-in-gradle-projects
 .kotlin/
+
+# Android Studio and Gradle
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+.DS_Store
+.externalNativeBuild
+.cxx/
+
+# Keystore files
+*.jks
+*.keystore
+
+# Google Services (e.g. APIs or Firebase)
+google-services.json
+
+# Android Profiling
+*.hprof
+
+# Signing files
+.signing/
+
+# Local configuration file (SDK path)
+local.properties
+
+# Gradle cache
+.gradle/
+
+# Build outputs
+build/
+out/
+apks/
+release/
+
+# IDE files
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS generated files
+Thumbs.db
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Debug files
+*.log
+*.trace
+debug/
+
+# Test outputs
+test-results/
+androidTest-results/
+
+# Lint
+lint/intermediates/
+lint/generated/
+lint/outputs/
+lint/tmp/
+
+# Proguard
+proguard/
+proguard-rules.pro
+
+# APK files (keep only in releases)
+*.apk
+!release/*.apk
+
+# AAB files (keep only in releases)
+*.aab
+!release/*.aab
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
