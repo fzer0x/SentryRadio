@@ -154,7 +154,11 @@ Distributed under the GNU GPL v3 License. See `LICENSE` for more information.
 
 ## 📝 Changelog
 
-**v0.4.0** (Current Release)
+**v0.4.1**
+- Improve GSM/2G Downgrade Attack
+- improve A5/0 Cipher Attack
+
+**v0.4.0**
 - **Advanced Panic Mode & Recovery System:**
   - Implemented Extended Panic Mode with full system lockdown and hardware radio disable.
   - Added automated recovery procedures with panic validation for post-incident analysis.
