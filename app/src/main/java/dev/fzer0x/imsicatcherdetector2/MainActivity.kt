@@ -909,7 +909,7 @@ fun SettingsScreen(viewModel: ForensicViewModel) {
             Spacer(Modifier.height(16.dp))
             
             // OPEN CELL ID
-            SettingsRow("OpenCellID API", "Required for Area Scans", settings.useOpenCellId) {
+            SettingsRow("OpenCellID API (Free)", "Required for Area Scans", settings.useOpenCellId) {
                 viewModel.updateUseOpenCellId(it)
             }
             if (settings.useOpenCellId) {
@@ -999,7 +999,7 @@ fun SettingsScreen(viewModel: ForensicViewModel) {
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "Developer: fzer0x | Version: 0.3.0",
+                    text = "Developer: fzer0x | Version: 0.4.0",
                     color = Color.Gray,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium
