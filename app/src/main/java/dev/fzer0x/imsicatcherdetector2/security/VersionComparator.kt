@@ -2,7 +2,7 @@ package dev.fzer0x.imsicatcherdetector2.security
 
 object VersionComparator {
     /**
-     * Vergleicht zwei Versionen im Format "MAJOR-MINOR.PATCH" (z.B. 3-0.2.1)
+     * Vergleicht zwei Versionen im Format "versionCode-versionName" (z.B. 4-0.3.0)
      * Rückgabe: 1 wenn remote > local, -1 wenn local > remote, 0 wenn gleich
      */
     fun compare(local: String, remote: String): Int {
@@ -23,12 +23,14 @@ object VersionComparator {
     }
 
     private fun splitVersion(v: String): List<Int> {
-        // Bereinigt Suffixe wie -beta oder -alpha für den Vergleich
-        val cleanV = v.split("-").firstOrNull { it.any { c -> c.isDigit() } } ?: v
+        // Erwartetes Format: "versionCode-versionName" (z.B. "4-0.3.0")
         val mainParts = v.split("-")
-        val major = mainParts.getOrNull(0)?.toIntOrNull() ?: 0
-        val rest = if (mainParts.size > 1) mainParts[1].split(".") else emptyList()
-        val restInts = rest.map { it.toIntOrNull() ?: 0 }
-        return listOf(major) + restInts
+        val versionCode = mainParts.getOrNull(0)?.toIntOrNull() ?: 0
+        val versionName = if (mainParts.size > 1) mainParts[1] else ""
+        
+        // VersionName in Teile aufteilen (z.B. "0.3.0" -> [0, 3, 0])
+        val versionNameParts = versionName.split(".").map { it.toIntOrNull() ?: 0 }
+        
+        return listOf(versionCode) + versionNameParts
     }
 }

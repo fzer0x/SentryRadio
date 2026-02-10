@@ -70,6 +70,8 @@ import dev.fzer0x.imsicatcherdetector2.ui.theme.IMSICatcherDetector2Theme
 import dev.fzer0x.imsicatcherdetector2.ui.viewmodel.ForensicViewModel
 import dev.fzer0x.imsicatcherdetector2.security.VulnerabilityManager
 import dev.fzer0x.imsicatcherdetector2.security.UpdateManager
+import dev.fzer0x.imsicatcherdetector2.ui.components.UpdateDialog
+import dev.fzer0x.imsicatcherdetector2.utils.VersionUtils
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
@@ -102,8 +104,14 @@ class MainActivity : ComponentActivity() {
         Configuration.getInstance().userAgentValue = packageName
         checkAndRequestPermissions()
         
-        // Update Check (GitHub Release v0.3.0)
-        UpdateManager.checkForUpdates(this, "4-0.3.0")
+        // Update Check mit dynamischer Version
+        val currentVersion = VersionUtils.getCurrentVersion(this)
+        UpdateManager.setUpdateCallback(object : UpdateManager.UpdateCallback {
+            override fun onUpdateAvailable(currentVersion: String, latestVersion: String) {
+                // Update-Dialog wird in der UI angezeigt
+            }
+        })
+        UpdateManager.checkForUpdates(this, currentVersion)
         
         setContent {
             IMSICatcherDetector2Theme {
@@ -160,7 +168,26 @@ fun MainContainer(viewModel: ForensicViewModel) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var selectedEvent by remember { mutableStateOf<ForensicEvent?>(null) }
     var showSheet by remember { mutableStateOf(false) }
+    var showUpdateDialog by remember { mutableStateOf(false) }
+    var currentVersion by remember { mutableStateOf("0-0.0.0") }
+    var latestVersion by remember { mutableStateOf("0-0.0.0") }
     val context = LocalContext.current as MainActivity
+
+    // Update-Callback setzen
+    LaunchedEffect(Unit) {
+        UpdateManager.setUpdateCallback(object : UpdateManager.UpdateCallback {
+            override fun onUpdateAvailable(current: String, latest: String) {
+                currentVersion = current
+                latestVersion = latest
+                showUpdateDialog = true
+            }
+        })
+        
+        // Update-Check durchführen
+        val version = VersionUtils.getCurrentVersion(context)
+        currentVersion = version
+        UpdateManager.checkForUpdates(context, version)
+    }
 
     LaunchedEffect(Unit) {
         viewModel.syncStatus.collect { message ->
@@ -265,6 +292,15 @@ fun MainContainer(viewModel: ForensicViewModel) {
             ) {
                 ForensicDetailView(selectedEvent!!, viewModel)
             }
+        }
+        
+        // Update Dialog
+        if (showUpdateDialog) {
+            UpdateDialog(
+                currentVersion = currentVersion,
+                latestVersion = latestVersion,
+                onDismiss = { showUpdateDialog = false }
+            )
         }
     }
 }
