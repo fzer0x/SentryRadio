@@ -390,8 +390,8 @@ fun DashboardScreen(viewModel: ForensicViewModel, onShowCveDialog: () -> Unit) {
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF0D1F2D)),
                 border = BorderStroke(1.dp, Color.Cyan.copy(alpha = 0.3f))
             ) {
-                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
+                Column(Modifier.padding(12.dp)) {
+                    Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("SYSTEM INTEGRITY SCAN", color = Color.Cyan, fontWeight = FontWeight.Bold, fontSize = 10.sp)
                             if (state.isLoadingCve) {
@@ -416,12 +416,17 @@ fun DashboardScreen(viewModel: ForensicViewModel, onShowCveDialog: () -> Unit) {
                             fontSize = 10.sp
                         )
                     }
-                    Column {
-                        IconButton(
+                    
+                    Spacer(Modifier.height(12.dp))
+                    
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Button(
                             onClick = { onShowCveDialog() },
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(width = 80.dp, height = 32.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Yellow),
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
                         ) {
-                            Icon(Icons.Default.Build, contentDescription = "View CVEs", tint = Color.Cyan, modifier = Modifier.size(20.dp))
+                            Text("OPEN CVE LIST", color = Color.Black, fontSize = 8.sp, fontWeight = FontWeight.Bold)
                         }
                         IconButton(
                             onClick = { viewModel.refreshCveDatabase() },
@@ -1219,10 +1224,10 @@ fun MapForensicScreen(viewModel: ForensicViewModel) {
                         tower.range?.let { r ->
                             val circle = Polygon(view)
                             circle.points = Polygon.pointsAsCircle(point, r)
-                            val alpha = if (tower.isMissingInDb) 100 else 40
-                            circle.fillPaint.color = Color(ratColor).copy(alpha = alpha / 255f).toArgb()
+                            // Keine Füllung mehr - nur noch der Rand
+                            circle.fillPaint.color = Color.Transparent.toArgb()
                             circle.outlinePaint.color = ratColor
-                            circle.outlinePaint.strokeWidth = if(tower.isMissingInDb) 5f else 2f
+                            circle.outlinePaint.strokeWidth = if(tower.isMissingInDb) 8f else 4f
                             circle.infoWindow = null 
                             // Consuming the click without bubble
                             circle.setOnClickListener { _, _, _ -> 

@@ -213,6 +213,10 @@ Distributed under the GNU GPL v3 License. See `LICENSE` for more information.
   - Resolved coroutine scope issues in MainActivity for proper async operations.
   - Fixed import references and compilation errors.
   - Enhanced error handling throughout the vulnerability detection pipeline.
+  - **Map Tab Optimization:**
+  - Improved cell tower radius circles visibility by removing fill color and using only outline strokes.
+  - Increased line thickness for better visibility (4px normal, 8px for missing towers).
+  - Fixed overlapping circle visibility issues in high-density cell tower areas.
 
 **v0.3.0-beta**
 - **Deep System Hardening (Magisk/KSU Module):**

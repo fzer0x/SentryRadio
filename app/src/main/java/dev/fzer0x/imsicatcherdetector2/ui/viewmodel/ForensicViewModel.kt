@@ -824,7 +824,7 @@ fun triggerForensicDump() { viewModelScope.launch { if (_dashboardState.value.ha
         try {
             // Set loading state
             _dashboardState.update { it.copy(isLoadingCve = true) }
-            _syncStatus.emit("Refreshing CVE database...")
+            _syncStatus.emit("Checking for new CVEs...")
             
             // Get current device info
             val currentState = _dashboardState.value
@@ -832,8 +832,8 @@ fun triggerForensicDump() { viewModelScope.launch { if (_dashboardState.value.ha
             val baseband = currentState.detectedBaseband
             val securityPatch = currentState.securityPatch
             
-            // Force refresh vulnerability database
-            val (vulns, cveCounts) = vulnerabilityManager.checkVulnerabilities(chipset, baseband, securityPatch, forceRefresh = true)
+            // Refresh vulnerability database (inkrementell - nur neue CVEs hinzufügen)
+            val (vulns, cveCounts) = vulnerabilityManager.checkVulnerabilities(chipset, baseband, securityPatch, forceRefresh = false)
             val (totalCveCount, chipsetCveCount) = cveCounts
             
             // Update last sync time
@@ -854,7 +854,7 @@ fun triggerForensicDump() { viewModelScope.launch { if (_dashboardState.value.ha
                 )
             }
             
-            _syncStatus.emit("CVE database refreshed successfully at $currentTimeStr")
+            _syncStatus.emit("CVE database updated - keeping existing entries, added new ones at $currentTimeStr")
         } catch (e: Exception) {
             // Stop loading on error
             _dashboardState.update { it.copy(isLoadingCve = false) }
