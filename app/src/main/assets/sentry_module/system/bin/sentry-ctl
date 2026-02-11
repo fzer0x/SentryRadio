@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# Sentry Radio Hardening - Advanced Snapdragon Telemetry v0.4.0
+# Sentry Radio Hardening - Advanced Snapdragon Telemetry v0.4.2
 
 COMMAND=$1
 VALUE=$2
@@ -57,7 +57,7 @@ case $COMMAND in
         settings put global airplane_mode_on 1
         am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true
         stop ril-daemon
-        # Enhanced Panic Mode v0.4.1 - Persistent Configuration
+        # Enhanced Panic Mode v0.4.2 - Persistent Configuration
         log_action "Killing suspicious processes..."
         killall -9 com.android.phone 2>/dev/null
         killall -9 rild 2>/dev/null
