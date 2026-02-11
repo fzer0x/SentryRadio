@@ -153,6 +153,11 @@ Distributed under the GNU GPL v3 License. See `LICENSE` for more information.
 ---
 
 ## 📝 Changelog
+**v0.4.4-beta**
+    - Perform Reboot after Module Update/Install via SU
+
+**v0.4.3-beta**
+    - Temporary fast Fix Crash by pressing Reboot after Module Update/Install
 
 **v0.4.2-beta**
 - **Enhanced CVE Detection & Chipset Compatibility:**

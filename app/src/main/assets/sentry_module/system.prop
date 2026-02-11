@@ -1,4 +1,4 @@
-# Sentry Radio Hardening - Qualcomm/Snapdragon Telemetry & Hardening v0.4.2
+# Sentry Radio Hardening - Qualcomm/Snapdragon Telemetry & Hardening v0.4.3
 
 # Force more secure network selection behavior
 telephony.lteOnCdmaDevice=1
@@ -20,7 +20,7 @@ persist.vendor.radio.relay_op_info=1
 ro.telephony.call_ring.multiple=false
 persist.debug.wfd.enable=0
 
-# Enhanced Security Hardening v0.4.2
+# Enhanced Security Hardening v0.4.3
 # Anti-Baseband-Exploits
 persist.vendor.radio.secure_boot=1
 persist.vendor.radio.sanitize_ril=1
