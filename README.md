@@ -200,6 +200,20 @@ Distributed under the GNU GPL v3 License. See `LICENSE` for more information.
   - Improved system state validation with comprehensive health checks and status reporting.
   - Added forensic data collection and analysis capabilities for incident investigation.
 
+**v0.4.2-beta**
+- **Enhanced CVE Detection & Chipset Compatibility:**
+  - Added codename-to-technical-name mapping for Qualcomm chipsets (e.g., "LAHAINA" → "SM8350").
+  - Expanded VulnerabilityMatcher with additional chipset aliases for better matching.
+  - Enhanced NVD API rate limiting handling with intelligent delays.
+  - Implemented consistent test CVE fallback system for reliable detection.
+- **Improved Cache Management:**
+  - Added detailed logging for cache refresh decisions and API operations.
+  - Fixed cache clearing issues that caused inconsistent CVE counts.
+- **System Stability Fixes:**
+  - Resolved coroutine scope issues in MainActivity for proper async operations.
+  - Fixed import references and compilation errors.
+  - Enhanced error handling throughout the vulnerability detection pipeline.
+
 **v0.3.0-beta**
 - **Deep System Hardening (Magisk/KSU Module):**
   - Introduced the Sentry Radio Hardening Module for Magisk and KernelSU.

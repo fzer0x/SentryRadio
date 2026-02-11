@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.location.Location
+import android.os.Build
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
@@ -14,6 +15,10 @@ import androidx.core.app.NotificationCompat
 import com.google.android.gms.location.*
 import dev.fzer0x.imsicatcherdetector2.MainActivity
 import dev.fzer0x.imsicatcherdetector2.security.RootRepository
+import dev.fzer0x.imsicatcherdetector2.security.VulnerabilityManager
+import androidx.work.*
+import androidx.core.content.edit
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -130,6 +135,7 @@ class ForensicService : Service() {
             checkHardeningModule()
             startPolling()
             startRootLogcatMonitor()
+            scheduleHourlyCveUpdate()
         }
 
         registerReceiver(settingsReceiver, IntentFilter("dev.fzer0x.imsicatcherdetector2.SETTINGS_CHANGED"), RECEIVER_EXPORTED)
@@ -409,6 +415,53 @@ class ForensicService : Service() {
     private fun createNotification(): Notification {
         val pendingIntent = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, "forensic_monitoring").setContentTitle("Sentry Radio").setContentText("Forensic Engine: Active").setSmallIcon(android.R.drawable.ic_lock_idle_lock).setContentIntent(pendingIntent).setOngoing(true).build()
+    }
+
+    private fun scheduleHourlyCveUpdate() {
+        val cveUpdateRequest = PeriodicWorkRequestBuilder<CveUpdateWorker>(1, TimeUnit.HOURS)
+            .setConstraints(Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build())
+            .build()
+        
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "cve_update_worker",
+            ExistingPeriodicWorkPolicy.KEEP,
+            cveUpdateRequest
+        )
+        
+        Log.d(TAG, "Scheduled hourly CVE database updates")
+    }
+
+    class CveUpdateWorker(appContext: Context, workerParams: WorkerParameters) : CoroutineWorker(appContext, workerParams) {
+        private val vulnerabilityManager = VulnerabilityManager(appContext)
+        
+        override suspend fun doWork(): Result {
+            return try {
+                // Get device info from build properties
+                val chipset = Build.HARDWARE
+                val baseband = Build.getRadioVersion() ?: "Unknown"
+                val securityPatch = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    Build.VERSION.SECURITY_PATCH
+                } else {
+                    "Unknown"
+                }
+                
+                vulnerabilityManager.checkVulnerabilities(chipset, baseband, securityPatch, forceRefresh = true)
+                
+                // Save last update time
+                val prefs = applicationContext.getSharedPreferences("sentry_settings", Context.MODE_PRIVATE)
+                val editor = prefs.edit()
+                editor.putLong("last_cve_worker_sync", System.currentTimeMillis())
+                editor.commit()
+                
+                Log.d("CveUpdateWorker", "CVE database updated successfully")
+                Result.success()
+            } catch (e: Exception) {
+                Log.e("CveUpdateWorker", "Failed to update CVE database: ${e.message}")
+                Result.retry()
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY

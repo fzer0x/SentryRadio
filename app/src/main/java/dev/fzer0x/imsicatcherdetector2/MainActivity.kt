@@ -71,6 +71,7 @@ import dev.fzer0x.imsicatcherdetector2.ui.viewmodel.ForensicViewModel
 import dev.fzer0x.imsicatcherdetector2.security.VulnerabilityManager
 import dev.fzer0x.imsicatcherdetector2.security.UpdateManager
 import dev.fzer0x.imsicatcherdetector2.ui.components.UpdateDialog
+import dev.fzer0x.imsicatcherdetector2.ui.components.CveListDialog
 import dev.fzer0x.imsicatcherdetector2.utils.VersionUtils
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
@@ -169,6 +170,7 @@ fun MainContainer(viewModel: ForensicViewModel) {
     var selectedEvent by remember { mutableStateOf<ForensicEvent?>(null) }
     var showSheet by remember { mutableStateOf(false) }
     var showUpdateDialog by remember { mutableStateOf(false) }
+    var showCveDialog by remember { mutableStateOf(false) }
     var currentVersion by remember { mutableStateOf("0-0.0.0") }
     var latestVersion by remember { mutableStateOf("0-0.0.0") }
     val context = LocalContext.current as MainActivity
@@ -269,7 +271,7 @@ fun MainContainer(viewModel: ForensicViewModel) {
 
                 Box(modifier = Modifier.weight(1f)) {
                     when (selectedTab) {
-                        0 -> DashboardScreen(viewModel)
+                        0 -> DashboardScreen(viewModel) { showCveDialog = true }
                         1 -> MapForensicScreen(viewModel)
                         2 -> TimelineScreen(viewModel) { event ->
                             selectedEvent = event
@@ -302,6 +304,18 @@ fun MainContainer(viewModel: ForensicViewModel) {
                 onDismiss = { showUpdateDialog = false }
             )
         }
+        
+        // CVE Dialog
+        if (showCveDialog) {
+            val state = viewModel.dashboardState.collectAsState().value
+            CveListDialog(
+                vulnerabilities = state.vulnerabilities,
+                chipset = state.detectedChipset,
+                baseband = state.detectedBaseband,
+                securityPatch = state.securityPatch,
+                onDismiss = { showCveDialog = false }
+            )
+        }
     }
 }
 
@@ -321,7 +335,7 @@ fun RowScope.NavigationItem(label: String, icon: ImageVector, selected: Boolean,
 }
 
 @Composable
-fun DashboardScreen(viewModel: ForensicViewModel) {
+fun DashboardScreen(viewModel: ForensicViewModel, onShowCveDialog: () -> Unit) {
     val state by viewModel.dashboardState.collectAsState()
     val alertBrush = Brush.verticalGradient(listOf(Color(0xFF420000), Color.Black))
     val scrollState = rememberScrollState()
@@ -377,15 +391,53 @@ fun DashboardScreen(viewModel: ForensicViewModel) {
                 border = BorderStroke(1.dp, Color.Cyan.copy(alpha = 0.3f))
             ) {
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Build, contentDescription = null, tint = Color.Cyan, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(12.dp))
-                    Column {
-                        Text("SYSTEM INTEGRITY SCAN", color = Color.Cyan, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                    Column(Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("SYSTEM INTEGRITY SCAN", color = Color.Cyan, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                            if (state.isLoadingCve) {
+                                Spacer(Modifier.width(8.dp))
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(12.dp),
+                                    color = Color.Cyan,
+                                    strokeWidth = 2.dp
+                                )
+                            }
+                        }
                         Text("Chipset: ${state.detectedChipset} | Baseband: ${state.detectedBaseband}", color = Color.White, fontSize = 11.sp)
                         Text("Security Patch: ${state.securityPatch} | CVE Sync: ${state.lastCveUpdate}", color = Color.Gray, fontSize = 10.sp)
-                        Text(if(state.vulnerabilities.isEmpty()) "No known firmware vulnerabilities detected." else "Security Advisory: ${state.vulnerabilities.size} issues found!", 
-                            color = if(state.vulnerabilities.isEmpty()) Color.Green else Color.Yellow, 
-                            fontSize = 10.sp)
+                        Text("CVE Database: ${state.totalCveCount} total | ${state.chipsetCveCount} for chipset", color = Color.LightGray, fontSize = 10.sp)
+                        Text(
+                            if (state.isLoadingCve) "Updating CVE database..." 
+                            else if(state.vulnerabilities.isEmpty()) "No known firmware vulnerabilities detected." 
+                            else "Security Advisory: ${state.vulnerabilities.size} issues found!", 
+                            color = if (state.isLoadingCve) Color.Yellow 
+                            else if(state.vulnerabilities.isEmpty()) Color.Green 
+                            else Color.Yellow, 
+                            fontSize = 10.sp
+                        )
+                    }
+                    Column {
+                        IconButton(
+                            onClick = { onShowCveDialog() },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Default.Build, contentDescription = "View CVEs", tint = Color.Cyan, modifier = Modifier.size(20.dp))
+                        }
+                        IconButton(
+                            onClick = { viewModel.refreshCveDatabase() },
+                            modifier = Modifier.size(32.dp),
+                            enabled = !state.isLoadingCve
+                        ) {
+                            if (state.isLoadingCve) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    color = Color(0xFFFF9800),
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Icon(Icons.Default.Refresh, contentDescription = "Refresh Database", tint = Color(0xFFFF9800), modifier = Modifier.size(20.dp))
+                            }
+                        }
                     }
                 }
             }
@@ -414,29 +466,6 @@ fun DashboardScreen(viewModel: ForensicViewModel) {
                                 Spacer(Modifier.height(8.dp))
                                 state.activeThreats.forEach { threat ->
                                     Text("• $threat", color = Color.White, style = MaterialTheme.typography.bodyMedium)
-                                }
-                            }
-                        }
-                    }
-
-                    if (state.vulnerabilities.isNotEmpty()) {
-                        Card(
-                            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFF332200)),
-                            border = BorderStroke(1.dp, Color.Yellow)
-                        ) {
-                            Column(Modifier.padding(16.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.Info, contentDescription = null, tint = Color.Yellow)
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("MODEM VULNERABILITIES", fontWeight = FontWeight.Black, color = Color.Yellow, fontSize = 14.sp)
-                                }
-                                Spacer(Modifier.height(8.dp))
-                                state.vulnerabilities.forEach { vuln ->
-                                    Column(Modifier.padding(bottom = 8.dp)) {
-                                        Text("${vuln.cveId} (Severity: ${vuln.severity}/10)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                        Text(vuln.description, color = Color.Gray, fontSize = 10.sp, lineHeight = 14.sp)
-                                    }
                                 }
                             }
                         }

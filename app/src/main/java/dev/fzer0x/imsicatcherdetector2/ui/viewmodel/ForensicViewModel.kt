@@ -98,7 +98,10 @@ data class DashboardState(
     val securityPatch: String = "Unknown",
     val moduleUpdateAvailable: Boolean = false,
     val currentModuleVersion: String = "Not installed",
-    val availableModuleVersion: String = ""
+    val availableModuleVersion: String = "",
+    val totalCveCount: Int = 0,
+    val chipsetCveCount: Int = 0,
+    val isLoadingCve: Boolean = false
 )
 
 class ForensicViewModel(application: Application) : AndroidViewModel(application) {
@@ -441,47 +444,138 @@ class ForensicViewModel(application: Application) : AndroidViewModel(application
             ?.trim() ?: "Unknown"
     }
 
-    private suspend fun performFingerprinting() {
-        val chipset = if (_dashboardState.value.hasRoot) {
-            RootRepository.execute("getprop ro.board.platform").output.trim().ifEmpty { Build.HARDWARE }
-        } else {
-            Build.HARDWARE
-        }
+    private fun convertCodenameToTechnicalName(codename: String): String {
+        val normalized = codename.lowercase().trim()
         
-        val baseband = if (_dashboardState.value.hasRoot) {
-            RootRepository.execute("getprop gsm.version.baseband").output.trim().ifEmpty { Build.getRadioVersion() ?: "Unknown" }
-        } else {
-            Build.getRadioVersion() ?: "Unknown"
-        }
+        // Map Qualcomm codenames to technical names
+        val codenameMap = mapOf(
+            // Latest Snapdragon 8 Series
+            "sun" to "sm8750",          // Snapdragon 8 Gen 4
+            "poka" to "sm8750",        // Snapdragon 8 Gen 4 variant
+            "sm8750" to "sm8750",      // Already technical
+            
+            "pineapple" to "sm8650",   // Snapdragon 8 Gen 3
+            "sm8650" to "sm8650",      // Already technical
+            
+            "kalama" to "sm8550",      // Snapdragon 8 Gen 2
+            "sm8550" to "sm8550",      // Already technical
+            
+            "lahaina" to "sm8350",     // Snapdragon 888
+            "sm8350" to "sm8350",     // Already technical
+            
+            // Previous Snapdragon 8 Series
+            "kona" to "sm8250",        // Snapdragon 865/865+
+            "sm8250" to "sm8250",     // Already technical
+            
+            "msmnile" to "sm8150",    // Snapdragon 855/855+
+            "sm8150" to "sm8150",     // Already technical
+            
+            // Snapdragon 7 Series
+            "crow" to "sm7450",        // Snapdragon 7 Gen 3
+            "sm7450" to "sm7450",     // Already technical
+            
+            "colombo" to "sm7350",    // Snapdragon 7+ Gen 2
+            "sm7350" to "sm7350",     // Already technical
+            
+            "monaco" to "sm7325",     // Snapdragon 7 Gen 1
+            "sm7325" to "sm7325",     // Already technical
+            
+            // Snapdragon 6 Series
+            "blair" to "sm6375",      // Snapdragon 6 Gen 1
+            "sm6375" to "sm6375",     // Already technical
+            
+            // Legacy Snapdragon
+            "sdm845" to "sm8450",     // Snapdragon 845
+            "sm8450" to "sm8450",     // Already technical
+            
+            "sdm835" to "sm8350",     // Snapdragon 835
+            "msm8998" to "msm8998",   // Snapdragon 835 (alternative)
+            
+            "sdm830" to "sm8300",     // Snapdragon 830
+            "msm8996" to "msm8996",   // Snapdragon 820/821
+            
+            // MediaTek codenames (mapping to technical names where applicable)
+            "mt6895" to "mt6895",     // Dimensity 8100
+            "mt6893" to "mt6893",     // Dimensity 1200
+            "mt6879" to "mt6879",     // Dimensity 1000
+            "mt6877" to "mt6877",     // Dimensity 900
+            "mt6875" to "mt6875",     // Dimensity 800
+            "mt6853" to "mt6853",     // Dimensity 700
+            "mt6833" to "mt6833",     // Dimensity 600
+            
+            // Samsung Exynos codenames
+            "s5e9945" to "exynos2400", // Exynos 2400
+            "exynos2400" to "exynos2400",
+            
+            "s5e9840" to "exynos2100", // Exynos 2100
+            "exynos2100" to "exynos2100",
+            
+            "s5e8825" to "exynos1080", // Exynos 1080
+            "exynos1080" to "exynos1080"
+        )
         
-        val securityPatch = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            Build.VERSION.SECURITY_PATCH
-        } else {
-            "Unknown"
-        }
-        
-        val vulns = vulnerabilityManager.checkVulnerabilities(chipset, baseband, securityPatch)
-        
-        // Get last CVE update time from DAO and manual sync
-        val allCached = forensicDao.getAllCves()
-        val lastDbUpdateMillis = allCached.maxOfOrNull { it.lastUpdated } ?: 0L
-        val lastManualSyncMillis = prefs.getLong("last_cve_sync_manual", 0L)
-        
-        // Use the most recent time
-        val lastUpdateMillis = if (lastDbUpdateMillis > lastManualSyncMillis) lastDbUpdateMillis else lastManualSyncMillis
-        val lastUpdateStr = if (lastUpdateMillis > 0) {
-            SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(lastUpdateMillis))
-        } else {
-            "Never"
-        }
+        return codenameMap[normalized] ?: codename.uppercase()
+    }
 
-        _dashboardState.update { it.copy(
-            vulnerabilities = vulns, 
-            detectedChipset = chipset.uppercase(), 
-            detectedBaseband = baseband,
-            lastCveUpdate = lastUpdateStr,
-            securityPatch = securityPatch
-        ) }
+    private suspend fun performFingerprinting() {
+        // Set loading state for initial fingerprinting
+        _dashboardState.update { it.copy(isLoadingCve = true) }
+        
+        try {
+            val rawChipset = if (_dashboardState.value.hasRoot) {
+                RootRepository.execute("getprop ro.board.platform").output.trim().ifEmpty { Build.HARDWARE }
+            } else {
+                Build.HARDWARE
+            }
+            
+            // Convert codenames to technical chipset names for API compatibility
+            val chipset = convertCodenameToTechnicalName(rawChipset)
+            
+            val baseband = if (_dashboardState.value.hasRoot) {
+                RootRepository.execute("getprop gsm.version.baseband").output.trim().ifEmpty { Build.getRadioVersion() ?: "Unknown" }
+            } else {
+                Build.getRadioVersion() ?: "Unknown"
+            }
+            
+            val securityPatch = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                Build.VERSION.SECURITY_PATCH
+            } else {
+                "Unknown"
+            }
+            
+            val (vulns, cveCounts) = vulnerabilityManager.checkVulnerabilities(chipset, baseband, securityPatch, forceRefresh = false)
+            val (totalCveCount, chipsetCveCount) = cveCounts
+            
+            // Get last CVE update time from DAO and manual sync
+            val allCached = forensicDao.getAllCves()
+            val lastDbUpdateMillis = allCached.maxOfOrNull { it.lastUpdated } ?: 0L
+            val lastManualSyncMillis = prefs.getLong("last_cve_sync_manual", 0L)
+            val lastRefreshMillis = prefs.getLong("last_cve_sync", 0L)
+            val lastWorkerSyncMillis = prefs.getLong("last_cve_worker_sync", 0L)
+            
+            // Use the most recent time
+            val lastUpdateMillis = maxOf(lastDbUpdateMillis, lastManualSyncMillis, lastRefreshMillis, lastWorkerSyncMillis)
+            val lastUpdateStr = if (lastUpdateMillis > 0) {
+                SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(lastUpdateMillis))
+            } else {
+                "Never"
+            }
+
+            _dashboardState.update { it.copy(
+                vulnerabilities = vulns, 
+                detectedChipset = chipset.uppercase(), 
+                detectedBaseband = baseband,
+                lastCveUpdate = lastUpdateStr,
+                securityPatch = securityPatch,
+                totalCveCount = totalCveCount,
+                chipsetCveCount = chipsetCveCount,
+                isLoadingCve = false
+            ) }
+        } catch (e: Exception) {
+            // Stop loading on error
+            _dashboardState.update { it.copy(isLoadingCve = false) }
+            Log.e("ForensicViewModel", "Error during fingerprinting: ${e.message}")
+        }
     }
 
     fun installHardeningModule(context: Context) {
@@ -725,6 +819,48 @@ fun triggerForensicDump() { viewModelScope.launch { if (_dashboardState.value.ha
     } else {
         _syncStatus.emit("CVE sync requires hardening module")
     } } }
+    
+    fun refreshCveDatabase() { viewModelScope.launch {
+        try {
+            // Set loading state
+            _dashboardState.update { it.copy(isLoadingCve = true) }
+            _syncStatus.emit("Refreshing CVE database...")
+            
+            // Get current device info
+            val currentState = _dashboardState.value
+            val chipset = currentState.detectedChipset
+            val baseband = currentState.detectedBaseband
+            val securityPatch = currentState.securityPatch
+            
+            // Force refresh vulnerability database
+            val (vulns, cveCounts) = vulnerabilityManager.checkVulnerabilities(chipset, baseband, securityPatch, forceRefresh = true)
+            val (totalCveCount, chipsetCveCount) = cveCounts
+            
+            // Update last sync time
+            val currentTime = System.currentTimeMillis()
+            val currentTimeStr = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(currentTime))
+            
+            // Save to persistent storage
+            prefs.edit { putLong("last_cve_sync", currentTime) }
+            
+            // Update dashboard state with fresh data and stop loading
+            _dashboardState.update { 
+                it.copy(
+                    vulnerabilities = vulns,
+                    totalCveCount = totalCveCount,
+                    chipsetCveCount = chipsetCveCount,
+                    lastCveUpdate = currentTimeStr,
+                    isLoadingCve = false
+                )
+            }
+            
+            _syncStatus.emit("CVE database refreshed successfully at $currentTimeStr")
+        } catch (e: Exception) {
+            // Stop loading on error
+            _dashboardState.update { it.copy(isLoadingCve = false) }
+            _syncStatus.emit("Failed to refresh CVE database: ${e.message}")
+        }
+    } }
     fun clearLogs() { viewModelScope.launch { forensicDao.clearLogs() } }
     fun exportLogsToPcap(context: Context) { /* ... */ }
 }

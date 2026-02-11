@@ -50,8 +50,14 @@ interface ForensicDao {
     @Query("SELECT * FROM cve_cache")
     suspend fun getAllCves(): List<CveEntity>
 
+    @Query("SELECT cveId FROM cve_cache")
+    suspend fun getAllCveIds(): List<String>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCves(cves: List<CveEntity>)
+
+    @Query("DELETE FROM cve_cache")
+    suspend fun clearCves()
 
     @Query("DELETE FROM cve_cache WHERE lastUpdated < :threshold")
     suspend fun pruneOldCveCache(threshold: Long)
