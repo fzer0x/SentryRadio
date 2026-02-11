@@ -332,24 +332,31 @@ fun MainContainer(viewModel: ForensicViewModel) {
                 onDismiss = { showRebootDialog = false },
                 onReboot = { 
                     showRebootDialog = false
-                    // Trigger system reboot with proper error handling
+                    // Trigger system reboot using su for root access
                     try {
-                        val powerManager = context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
-                        powerManager.reboot("Sentry Radio Module Installation")
-                    } catch (e: SecurityException) {
-                        // Handle permission issues gracefully
-                        Toast.makeText(context, "Reboot permission denied. Please reboot manually.", Toast.LENGTH_LONG).show()
+                        // Try su reboot first (most reliable for rooted devices)
+                        val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "reboot"))
+                        process.waitFor()
                     } catch (e: Exception) {
-                        // Fallback for devices that don't allow app reboot
                         try {
-                            val intent = Intent(Intent.ACTION_REBOOT)
-                            intent.putExtra("now", "now")
-                            intent.putExtra("interval", 1)
-                            intent.putExtra("window", 0)
-                            context.sendBroadcast(intent)
-                        } catch (e2: Exception) {
-                            // Final fallback - show manual reboot instruction
-                            Toast.makeText(context, "Please reboot your device manually to activate the module.", Toast.LENGTH_LONG).show()
+                            // Fallback to PowerManager
+                            val powerManager = context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+                            powerManager.reboot("Sentry Radio Module Installation")
+                        } catch (e2: SecurityException) {
+                            // Handle permission issues gracefully
+                            Toast.makeText(context, "Reboot permission denied. Please reboot manually.", Toast.LENGTH_LONG).show()
+                        } catch (e3: Exception) {
+                            // Final fallback - broadcast intent
+                            try {
+                                val intent = Intent(Intent.ACTION_REBOOT)
+                                intent.putExtra("now", "now")
+                                intent.putExtra("interval", 1)
+                                intent.putExtra("window", 0)
+                                context.sendBroadcast(intent)
+                            } catch (e4: Exception) {
+                                // Manual reboot instruction
+                                Toast.makeText(context, "Please reboot your device manually to activate the module.", Toast.LENGTH_LONG).show()
+                            }
                         }
                     }
                 }
