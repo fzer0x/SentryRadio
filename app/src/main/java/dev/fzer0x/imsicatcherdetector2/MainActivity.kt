@@ -1386,10 +1386,10 @@ fun MapForensicScreen(viewModel: ForensicViewModel) {
                         tower.range?.let { r ->
                             val circle = Polygon(view)
                             circle.points = Polygon.pointsAsCircle(point, r)
-                            val alpha = if (tower.isMissingInDb) 100 else 40
-                            circle.fillPaint.color = Color(ratColor).copy(alpha = alpha / 255f).toArgb()
+                            
+                            circle.fillPaint.color = Color.Transparent.toArgb()
                             circle.outlinePaint.color = ratColor
-                            circle.outlinePaint.strokeWidth = if(tower.isMissingInDb) 5f else 2f
+                            circle.outlinePaint.strokeWidth = if(tower.isMissingInDb) 8f else 4f
                             circle.infoWindow = null 
                             // Consuming the click without bubble
                             circle.setOnClickListener { _, _, _ -> 
