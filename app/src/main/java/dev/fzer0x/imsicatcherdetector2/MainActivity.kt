@@ -200,7 +200,7 @@ fun MainContainer(viewModel: ForensicViewModel) {
             // Show reboot dialog only when installation is actually completed successfully
             if (message == "Installation successful! Reboot required.") {
                 // Small delay to ensure the installation toast is seen first
-                kotlinx.coroutines.delay(5000)
+                kotlinx.coroutines.delay(7000)
                 showRebootDialog = true
             }
         }
