@@ -217,6 +217,9 @@ Distributed under the GNU GPL v3 License. See `LICENSE` for more information.
   - Improved cell tower radius circles visibility by removing fill color and using only outline strokes.
   - Increased line thickness for better visibility (4px normal, 8px for missing towers).
   - Fixed overlapping circle visibility issues in high-density cell tower areas.
+  - **Improved Module Updates**
+  - Added Module Update Notification in Status Tab.
+  - Added Module Reboot Dialog after Install/Update in Settings Tab.
 
 **v0.3.0-beta**
 - **Deep System Hardening (Magisk/KSU Module):**
