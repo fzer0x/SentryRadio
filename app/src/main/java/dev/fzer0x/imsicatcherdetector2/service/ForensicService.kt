@@ -115,7 +115,7 @@ class ForensicService : Service() {
             val description = intent.getStringExtra("description") ?: ""
             val severity = intent.getIntExtra("severity", 5)
             val simSlot = intent.getIntExtra("simSlot", 0)
-            
+
             Log.i(TAG, "Hardware blocking event: $blockType - $description")
             recordBlockingEvent("HARDWARE_$blockType", description, severity, simSlot)
         }
@@ -128,7 +128,7 @@ class ForensicService : Service() {
         loadSettingsFromPreferences()
         wifiBluetoothScanner = WifiBluetoothScanner(this)
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
-        
+
         setupLocationTracking()
 
         serviceScope.launch {
@@ -152,7 +152,7 @@ class ForensicService : Service() {
                 .build()
 
             fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper())
-            
+
             fusedLocationClient.lastLocation.addOnSuccessListener { location ->
                 if (location != null) {
                     lastServiceLocation = location
@@ -179,7 +179,7 @@ class ForensicService : Service() {
 
     private fun triggerAutoMitigation(reason: String, critical: Boolean = false) {
         if (!autoMitigation || !isHardeningModuleActive) return
-        
+
         serviceScope.launch {
             if (critical) {
                 Log.e(TAG, "AUTO-MITIGATION: CRITICAL THREAT ($reason). Activating EXTENDED PANIC MODE.")
@@ -213,7 +213,7 @@ class ForensicService : Service() {
         val result = RootRepository.execute("dumpsys telephony.registry")
         if (!result.success) return
         val output = result.output
-        
+
         // 1. Process ACTIVE SIM Slots
         for (slot in 0..1) {
             val slotSection = extractSlotSection(output, slot)
@@ -225,7 +225,7 @@ class ForensicService : Service() {
             val earfcn = extractValue(slotSection, "mEarfcn", slot)?.toIntOrNull() ?: extractValue(slotSection, "mNrArfcn", slot)?.toIntOrNull()
             val dbm = extractAnySignal(slotSection, slot)
             val networkType = extractNetworkType(slotSection, slot)
-            
+
             if (cid != null && mcc != null && mnc != null) {
                 broadcastForensicData(pci, earfcn, cid, dbm, null, mcc, mnc, tac, slot, networkType, isNeighbor = false)
             }
@@ -234,7 +234,7 @@ class ForensicService : Service() {
         // 2. Extract NEIGHBORS
         extractNeighborInfo(output).forEach { neighbor ->
             broadcastForensicData(
-                neighbor.pci, neighbor.earfcn, neighbor.cid, neighbor.dbm, 
+                neighbor.pci, neighbor.earfcn, neighbor.cid, neighbor.dbm,
                 null, neighbor.mcc, neighbor.mnc, neighbor.tac, neighbor.slot, neighbor.type, isNeighbor = true
             )
         }
@@ -245,7 +245,7 @@ class ForensicService : Service() {
     }
 
     private data class NeighborData(
-        val slot: Int, val type: String, val cid: String, val mcc: String, val mnc: String, 
+        val slot: Int, val type: String, val cid: String, val mcc: String, val mnc: String,
         val tac: Int?, val pci: Int?, val earfcn: Int?, val dbm: Int?
     )
 
@@ -256,7 +256,7 @@ class ForensicService : Service() {
         while (matcher.find()) {
             val slot = matcher.group(1).toIntOrNull() ?: 0
             val info = matcher.group(2) ?: ""
-            
+
             val type = if (info.contains("LTE", true)) "LTE" else if (info.contains("NR", true)) "NR" else if (info.contains("GSM", true)) "GSM" else if (info.contains("WCDMA", true)) "WCDMA" else "UNKNOWN"
             val cid = extractRegexValue(info, "mCi=(-?\\d+)|mCid=(-?\\d+)|mNci=(-?\\d+)")
             val mcc = extractRegexValue(info, "mMcc=([0-9]{3})")
@@ -287,13 +287,13 @@ class ForensicService : Service() {
     private fun extractValue(input: String, key: String, slot: Int): String? {
         val pattern = Pattern.compile("m?$key\\[$slot\\]=(-?\\d+)|m?$key=(-?\\d+)", Pattern.CASE_INSENSITIVE)
         val m = pattern.matcher(input); var found: String? = null
-        while (m.find()) { 
+        while (m.find()) {
             val v = m.group(1) ?: m.group(2)
-            if (isValidValue(v)) found = v 
+            if (isValidValue(v)) found = v
         }
         return found
     }
-    
+
     private fun isValidValue(v: String?): Boolean {
         return v != null && v != "2147483647" && v != "4095" && v != "65535" && v != "-1" && v != "9223372036854775807"
     }
@@ -303,11 +303,11 @@ class ForensicService : Service() {
         val m = pattern.matcher(input)
         if (m.find()) {
             val typeInt = (m.group(1) ?: m.group(2))?.toIntOrNull() ?: return null
-            val baseType = when (typeInt) { 
-                13 -> "LTE"; 20 -> "NR"; 1, 2, 16 -> "GSM"; 
-                3, 8, 9, 10, 15 -> "WCDMA"; else -> "LTE" 
+            val baseType = when (typeInt) {
+                13 -> "LTE"; 20 -> "NR"; 1, 2, 16 -> "GSM";
+                3, 8, 9, 10, 15 -> "WCDMA"; else -> "LTE"
             }
-            
+
             // Enhanced 5G/SA detection
             if (baseType == "NR") {
                 return when {
@@ -318,7 +318,7 @@ class ForensicService : Service() {
                     else -> "5G NR"
                 }
             }
-            
+
             return baseType
         }
         return null
@@ -353,12 +353,12 @@ class ForensicService : Service() {
                 val cipheringPattern = Pattern.compile("Ciphering:?\\s*(OFF|0|NONE)|A5/0|encryption:?\\s*false", Pattern.CASE_INSENSITIVE)
                 val rejectPattern = Pattern.compile("Location Updating Reject|Cause\\s*#?\\s*(\\d+)", Pattern.CASE_INSENSITIVE)
                 val downgradePattern = Pattern.compile("RAT changed|NetworkType changed|Handover to GSM", Pattern.CASE_INSENSITIVE)
-                
+
                 withContext(Dispatchers.IO) {
                     var line: String? = null
                     while (isActive && reader.readLine().also { line = it } != null) {
                         val l = line ?: ""; val simSlot = if (l.contains("sub=1") || l.contains("simId=1")) 1 else 0
-                        
+
                         if (cipheringPattern.matcher(l).find() && canProcessAlert("CIPHERING_OFF", simSlot)) {
                             broadcastAlert("CIPHERING_OFF", 10, "CRITICAL: Encryption disabled (A5/0) on SIM $simSlot!", l, simSlot)
                             triggerAutoMitigation("A5/0 Cipher Detected", critical = true)
@@ -370,7 +370,7 @@ class ForensicService : Service() {
                                 val smsc = mSilent.group(1)
                                 if (smsc != null) extraInfo = " (SMSC: $smsc)"
                             } catch (e: Exception) {}
-                            
+
                             broadcastAlert("IMSI_CATCHER_ALERT", 9, "SUSPICIOUS: Silent SMS on SIM $simSlot$extraInfo", l, simSlot)
                             triggerAutoMitigation("Silent SMS Detection")
                         }
@@ -439,19 +439,19 @@ class ForensicService : Service() {
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build())
             .build()
-        
+
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             "cve_update_worker",
             ExistingPeriodicWorkPolicy.KEEP,
             cveUpdateRequest
         )
-        
+
         Log.d(TAG, "Scheduled hourly CVE database updates")
     }
 
     class CveUpdateWorker(appContext: Context, workerParams: WorkerParameters) : CoroutineWorker(appContext, workerParams) {
         private val vulnerabilityManager = VulnerabilityManager(appContext)
-        
+
         override suspend fun doWork(): Result {
             return try {
                 // Get device info from build properties
@@ -462,15 +462,15 @@ class ForensicService : Service() {
                 } else {
                     "Unknown"
                 }
-                
+
                 vulnerabilityManager.checkVulnerabilities(chipset, baseband, securityPatch, forceRefresh = true)
-                
+
                 // Save last update time
                 val prefs = applicationContext.getSharedPreferences("sentry_settings", Context.MODE_PRIVATE)
                 val editor = prefs.edit()
                 editor.putLong("last_cve_worker_sync", System.currentTimeMillis())
                 editor.commit()
-                
+
                 Log.d("CveUpdateWorker", "CVE database updated successfully")
                 Result.success()
             } catch (e: Exception) {
