@@ -9,7 +9,7 @@ import dev.fzer0x.imsicatcherdetector2.security.CveEntity
 
 @Database(
     entities = [ForensicEvent::class, CellTower::class, LocalCellTower::class, CveEntity::class],
-    version = 18,
+    version = 19,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

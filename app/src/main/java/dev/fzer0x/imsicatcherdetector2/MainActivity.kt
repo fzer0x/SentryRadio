@@ -385,6 +385,20 @@ fun DashboardScreen(viewModel: ForensicViewModel, onShowCveDialog: () -> Unit, o
     val state by viewModel.dashboardState.collectAsState()
     val alertBrush = Brush.verticalGradient(listOf(Color(0xFF420000), Color.Black))
     val scrollState = rememberScrollState()
+    
+    // Performance optimization: Remember expensive calculations
+    val activeSim = remember(state.activeSimSlot) {
+        if(state.activeSimSlot == 0) state.sim0 else state.sim1
+    }
+    
+    val signalColor = remember(activeSim.signalStrength) {
+        when {
+            activeSim.signalStrength > -55 -> Color.Red
+            activeSim.signalStrength > -85 -> Color.Cyan
+            activeSim.signalStrength > -105 -> Color.Yellow
+            else -> Color.Gray
+        }
+    }
 
     Column(Modifier.fillMaxSize().verticalScroll(scrollState)) {
         TabRow(
@@ -408,8 +422,6 @@ fun DashboardScreen(viewModel: ForensicViewModel, onShowCveDialog: () -> Unit, o
                 Text("SIM 2", modifier = Modifier.padding(16.dp), color = if(state.activeSimSlot == 1) Color.Cyan else Color.Gray)
             }
         }
-
-        val activeSim = if(state.activeSimSlot == 0) state.sim0 else state.sim1
 
         Column(Modifier.padding(16.dp)) {
         // Module Update Card
@@ -545,13 +557,6 @@ fun DashboardScreen(viewModel: ForensicViewModel, onShowCveDialog: () -> Unit, o
                         }
                     }
                 }
-            }
-
-            val signalColor = when {
-                activeSim.signalStrength > -55 -> Color.Red
-                activeSim.signalStrength > -85 -> Color.Cyan
-                activeSim.signalStrength > -105 -> Color.Yellow
-                else -> Color.Gray
             }
 
             Text("RADIO STACK PARAMETERS", color = Color.Cyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))

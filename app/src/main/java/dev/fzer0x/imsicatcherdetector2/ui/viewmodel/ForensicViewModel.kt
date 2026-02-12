@@ -25,6 +25,7 @@ import dev.fzer0x.imsicatcherdetector2.service.ForensicService
 import dev.fzer0x.imsicatcherdetector2.security.RootRepository
 import dev.fzer0x.imsicatcherdetector2.security.VulnerabilityManager
 import dev.fzer0x.imsicatcherdetector2.security.CveEntry
+import dev.fzer0x.imsicatcherdetector2.utils.MemoryManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -153,19 +154,21 @@ class ForensicViewModel(application: Application) : AndroidViewModel(application
     val blockedCellIds: StateFlow<List<String>> = _blockedCellIds
 
     val allLogs: StateFlow<List<ForensicEvent>> = combine(
-        forensicDao.getAllLogs(),
+        forensicDao.getRecentLogs(1000),
         settings,
         _blockedCellIds
     ) { logs, currentSettings, blockedIds ->
         var filtered = logs
-        if (!currentSettings.showBlockedEvents) filtered = filtered.filter { it.cellId == null || !blockedIds.contains(it.cellId) }
-        if (!currentSettings.logRadioMetrics) filtered = filtered.filter { it.type != EventType.RADIO_METRICS_UPDATE }
-        if (!currentSettings.logSuspiciousEvents) filtered = filtered.filter { it.severity !in 5..7 }
-        if (!currentSettings.logRootFeed) filtered = filtered.filter { !it.description.contains("Signal Feed") }
-        filtered.sortedByDescending { it.timestamp }
+        if (!currentSettings.showBlockedEvents) filtered = filtered.filter { event -> event.cellId == null || !blockedIds.contains(event.cellId) }
+        if (!currentSettings.logRadioMetrics) filtered = filtered.filter { event -> event.type != EventType.RADIO_METRICS_UPDATE }
+        if (!currentSettings.logSuspiciousEvents) filtered = filtered.filter { event -> event.severity !in 5..7 }
+        if (!currentSettings.logRootFeed) filtered = filtered.filter { event -> !event.description.contains("Signal Feed") }
+        filtered.sortedByDescending { event -> event.timestamp }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    val allTowers: StateFlow<List<CellTower>> = forensicDao.getAllTowers().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val allTowers: StateFlow<List<CellTower>> = flow {
+        emit(forensicDao.getTowersInArea(-90.0, 90.0, -180.0, 180.0))
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _dashboardState = MutableStateFlow(DashboardState())
     val dashboardState: StateFlow<DashboardState> = _dashboardState.asStateFlow()
@@ -177,20 +180,23 @@ class ForensicViewModel(application: Application) : AndroidViewModel(application
     val blockingEvents: StateFlow<List<BlockingEvent>> = _blockingEvents.asStateFlow()
 
     init {
+        // Initialize memory management
+        MemoryManager.initialize(getApplication())
+        
         checkSystemStatus()
         observeBlockingEvents()
         startModemTelemetryPoller()
         startDataPruningJob()
 
         viewModelScope.launch {
-            forensicDao.getAllLogs().collect { logs ->
+            forensicDao.getRecentLogs(1000).collect { logs ->
                 if (logs.isEmpty()) {
                     _dashboardState.update { it.copy(securityStatus = "No Data Logs") }
                     return@collect
                 }
                 val threshold = if(_settings.value.sensitivity == 0) 9 else 7
-                val criticals = logs.filter { it.severity >= threshold && (System.currentTimeMillis() - it.timestamp < 3600000) }
-                val hasAlert = logs.any { (it.type == EventType.IMSI_CATCHER_ALERT || it.type == EventType.CIPHERING_OFF) && (System.currentTimeMillis() - it.timestamp < 600000) }
+                val criticals = logs.filter { event -> event.severity >= threshold && (System.currentTimeMillis() - event.timestamp < 3600000) }
+                val hasAlert = logs.any { event -> (event.type == EventType.IMSI_CATCHER_ALERT || event.type == EventType.CIPHERING_OFF) && (System.currentTimeMillis() - event.timestamp < 600000) }
                 val score = if (hasAlert) 100 else (criticals.size * 20).coerceIn(0, 100)
                 val status = when { score >= 90 -> "CRITICAL: THREAT DETECTED"; score > 50 -> "WARNING: ANOMALIES"; else -> "SYSTEM SECURE" }
 
@@ -198,7 +204,7 @@ class ForensicViewModel(application: Application) : AndroidViewModel(application
                     state.copy(
                         sim0 = updateSimState(logs, 0, state.sim0),
                         sim1 = updateSimState(logs, 1, state.sim1),
-                        threatLevel = score, securityStatus = status, activeThreats = criticals.map { it.description }.distinct()
+                        threatLevel = score, securityStatus = status, activeThreats = criticals.map { event -> event.description }.distinct()
                     )
                 }
             }

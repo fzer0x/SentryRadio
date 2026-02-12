@@ -1,8 +1,34 @@
 #!/system/bin/sh
-# Sentry Radio Hardening - Advanced Snapdragon Telemetry v0.4.2
+# Sentry Radio Hardening - Advanced Snapdragon Telemetry v0.4.5 (Performance Optimized)
 
 COMMAND=$1
 VALUE=$2
+
+# Performance optimization: Cache frequent operations
+CACHE_DIR="/data/local/tmp/sentry_cache"
+CACHE_TTL=300 # 5 minutes
+mkdir -p "$CACHE_DIR"
+
+cache_get() {
+    local key="$1"
+    local cache_file="$CACHE_DIR/${key}.cache"
+    if [ -f "$cache_file" ]; then
+        local file_age=$(($(date +%s) - $(stat -c %Y "$cache_file" 2>/dev/null || echo 0)))
+        if [ $file_age -lt $CACHE_TTL ]; then
+            cat "$cache_file" 2>/dev/null
+            return 0
+        fi
+    fi
+    return 1
+}
+
+cache_set() {
+    local key="$1"
+    local value="$2"
+    local cache_file="$CACHE_DIR/${key}.cache"
+    echo "$value" > "$cache_file"
+    chmod 600 "$cache_file"
+}
 
 log_action() {
     log -t SentryHardening "CLI: $1"
@@ -274,6 +300,15 @@ case $COMMAND in
         ;;
     "--telemetry")
         echo "--- Snapdragon Modem Telemetry ---"
+        
+        # Performance optimization: Use cache for telemetry data
+        local cache_key="telemetry_$(date +%M)" # Cache per minute
+        local cached_result
+        if cached_result=$(cache_get "$cache_key"); then
+            echo "$cached_result"
+            return 0
+        fi
+        
         # Get encryption algorithm
         ALGO=$(getprop vendor.radio.cipher_algo)
         [ -z "$ALGO" ] && ALGO="A5/3 (Likely)"
@@ -287,6 +322,10 @@ case $COMMAND in
         echo "Signal-RSRP: $(getprop vendor.radio.rsrp)"
         echo "Signal-SNR: $(getprop vendor.radio.snr)"
         echo "Baseband-Temp: $(getprop vendor.modem.temp)"
+        
+        # Cache the result
+        local result="Algorithm: $ALGO\nRRC State: $RRC\nSignal-RSRP: $(getprop vendor.radio.rsrp)\nSignal-SNR: $(getprop vendor.radio.snr)\nBaseband-Temp: $(getprop vendor.modem.temp)"
+        cache_set "$cache_key" "$result"
         
         # Advanced telemetry if enabled
         if [ "$(getprop persist.sentry.advanced_telemetry)" = "1" ]; then

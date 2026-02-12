@@ -2,8 +2,16 @@ package dev.fzer0x.imsicatcherdetector2.data
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import androidx.room.Index
 
-@Entity(tableName = "cell_towers")
+@Entity(tableName = "cell_towers",
+    indices = [
+        Index(value = ["mcc", "mnc", "lac"]),
+        Index(value = ["isBlocked"]),
+        Index(value = ["latitude", "longitude"]),
+        Index(value = ["lastSeen"])
+    ]
+)
 data class CellTower(
     @PrimaryKey val cellId: String,
     val firstSeen: Long = System.currentTimeMillis(),

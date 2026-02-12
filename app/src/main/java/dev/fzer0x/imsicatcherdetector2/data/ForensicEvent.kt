@@ -2,6 +2,7 @@ package dev.fzer0x.imsicatcherdetector2.data
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import androidx.room.Index
 
 enum class EventType {
     IMSI_CATCHER_ALERT,
@@ -16,7 +17,15 @@ enum class EventType {
     HYBRID_THREAT
 }
 
-@Entity(tableName = "forensic_logs")
+@Entity(tableName = "forensic_logs",
+    indices = [
+        Index(value = ["timestamp"]),
+        Index(value = ["type", "severity"]),
+        Index(value = ["cellId"]),
+        Index(value = ["simSlot"]),
+        Index(value = ["isExported"])
+    ]
+)
 data class ForensicEvent(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val timestamp: Long = System.currentTimeMillis(),

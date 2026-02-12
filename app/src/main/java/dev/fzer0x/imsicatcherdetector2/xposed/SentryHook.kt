@@ -41,6 +41,11 @@ class SentryHook : IXposedHookLoadPackage {
     private var rejectA50 = false
 
     private var settingsContext: Context? = null
+    
+    // Performance optimization: Cache frequent operations
+    private val hookCache = mutableMapOf<String, Long>()
+    private val CACHE_DURATION = 5000L // 5 seconds
+    private val MAX_CACHE_SIZE = 100
 
     override fun handleLoadPackage(lpparam: LoadPackageParam) {
         if (lpparam.packageName == "android") {
@@ -117,6 +122,23 @@ class SentryHook : IXposedHookLoadPackage {
                 override fun beforeHookedMethod(param: MethodHookParam) {
                     val response = param.args[0] ?: return
                     val respStr = response.toString().uppercase()
+                    
+                    // Performance optimization: Cache frequent pattern checks
+                    val cacheKey = "cipher_${respStr.hashCode()}"
+                    val now = System.currentTimeMillis()
+                    val lastCheck = hookCache[cacheKey] ?: 0L
+                    
+                    if (now - lastCheck < CACHE_DURATION) {
+                        return // Skip processing if recently checked
+                    }
+                    
+                    // Cleanup cache if too large
+                    if (hookCache.size > MAX_CACHE_SIZE) {
+                        val cutoff = now - CACHE_DURATION * 2
+                        hookCache.entries.removeIf { it.value < cutoff }
+                    }
+                    
+                    hookCache[cacheKey] = now
 
                     val cipheringPatterns = listOf(
                         "CIPHERING\\s*[:=]\\s*OFF",

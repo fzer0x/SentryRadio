@@ -51,6 +51,9 @@ class ForensicService : Service() {
 
     private val processedCriticalAlerts = mutableMapOf<String, Long>()
     private val CRITICAL_ALERT_COOLDOWN = 5000L
+    
+    // Performance optimization: Batch size
+    private val BATCH_SIZE = 50
 
     companion object {
         private val _blockingEventsFlow = MutableSharedFlow<BlockingEvent>(replay = 10, extraBufferCapacity = 50)
