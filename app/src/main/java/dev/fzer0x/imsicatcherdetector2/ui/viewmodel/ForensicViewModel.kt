@@ -430,31 +430,36 @@ class ForensicViewModel(application: Application) : AndroidViewModel(application
                     var snr = "N/A"
                     var temp = "N/A"
 
-                    if (_dashboardState.value.isHardeningModuleActive) {
-                        val result = RootRepository.execute("sentry-ctl --telemetry")
-                        if (result.success) {
-                            val output = result.output
-                            algo = output.lines().find { it.contains("Algorithm", true) }?.split(":")?.getOrNull(1)?.trim() ?: algo
-                            rrc = output.lines().find { it.contains("RRC State", true) }?.split(":")?.getOrNull(1)?.trim() ?: rrc
-                            snr = output.lines().find { it.contains("Signal-SNR", true) }?.split(":")?.getOrNull(1)?.trim() ?: snr
-                            temp = output.lines().find { it.contains("Baseband-Temp", true) }?.split(":")?.getOrNull(1)?.trim() ?: temp
-                        }
+                    // Direkte dumpsys Analyse statt sentry-ctl Abhängigkeit
+                    val dumpsysOutput = RootRepository.execute("dumpsys telephony.registry").output
+                    val latestConnectionEvent = dumpsysOutput.lines()
+                        .filter { it.contains("onDataConnectionStateChanged", true) }
+                        .lastOrNull { it.contains("CONNECTED", true) }
+                    
+                    rrc = if (latestConnectionEvent != null) {
+                        val networkType = latestConnectionEvent.substringAfterLast(",").trim()
+                        "CONNECTED ($networkType)"
                     } else {
-                        val propsToCheck = listOf("vendor.radio.cipher_algo", "persist.vendor.radio.cipher_algo", "gsm.radio.cipher", "vendor.radio.encryption")
-                        for (prop in propsToCheck) {
-                            val res = RootRepository.execute("getprop $prop").output.trim()
-                            if (res.isNotEmpty()) { algo = res; break }
+                        val latestDisconnectedEvent = dumpsysOutput.lines()
+                            .filter { it.contains("onDataConnectionStateChanged", true) }
+                            .lastOrNull { it.contains("DISCONNECTED", true) }
+                        if (latestDisconnectedEvent != null) {
+                            "DISCONNECTED"
+                        } else {
+                            "IDLE"
                         }
-                        val dumpsysOutput = RootRepository.execute("dumpsys telephony.registry").output
-                        val rrcLines = dumpsysOutput.lines().filter { it.contains("mRrcState", true) }
-                        rrc = if (rrcLines.isNotEmpty()) {
-                            val activeSlot = _dashboardState.value.activeSimSlot
-                            val line = if (activeSlot < rrcLines.size) rrcLines[activeSlot] else rrcLines.first()
-                            if (line.contains("=")) line.split("=").last().trim() else "IDLE"
-                        } else "IDLE"
-                        snr = RootRepository.execute("getprop vendor.radio.snr").output.trim().ifEmpty { RootRepository.execute("getprop vendor.radio.rsrq").output.trim().ifEmpty { "N/A" } }
-                        temp = RootRepository.execute("getprop vendor.modem.temp").output.trim().ifEmpty { RootRepository.execute("getprop vendor.modem.temperature").output.trim().ifEmpty { "N/A" } }
                     }
+
+                    // Cipher Algorithm aus System Properties
+                    val propsToCheck = listOf("vendor.radio.cipher_algo", "persist.vendor.radio.cipher_algo", "gsm.radio.cipher", "vendor.radio.encryption")
+                    for (prop in propsToCheck) {
+                        val res = RootRepository.execute("getprop $prop").output.trim()
+                        if (res.isNotEmpty()) { algo = res; break }
+                    }
+                    
+                    // SNR und Temperatur
+                    snr = RootRepository.execute("getprop vendor.radio.snr").output.trim().ifEmpty { RootRepository.execute("getprop vendor.radio.rsrq").output.trim().ifEmpty { "N/A" } }
+                    temp = RootRepository.execute("getprop vendor.modem.temp").output.trim().ifEmpty { RootRepository.execute("getprop vendor.modem.temperature").output.trim().ifEmpty { "N/A" } }
                     _dashboardState.update { it.copy(sim0 = it.sim0.copy(cipherAlgo = algo, rrcStatus = rrc, modemSnr = snr, modemTemp = temp), sim1 = it.sim1.copy(cipherAlgo = algo, rrcStatus = rrc, modemSnr = snr, modemTemp = temp)) }
                 }
                 delay(5000)
