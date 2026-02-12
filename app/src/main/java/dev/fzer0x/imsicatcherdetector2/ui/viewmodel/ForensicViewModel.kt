@@ -167,7 +167,7 @@ class ForensicViewModel(application: Application) : AndroidViewModel(application
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val allTowers: StateFlow<List<CellTower>> = flow {
-        emit(forensicDao.getTowersInArea(-90.0, 90.0, -180.0, 180.0))
+        emit(forensicDao.getAllTowersList())
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _dashboardState = MutableStateFlow(DashboardState())

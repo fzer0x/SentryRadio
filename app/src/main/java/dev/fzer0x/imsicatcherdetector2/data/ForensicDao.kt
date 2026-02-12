@@ -40,6 +40,9 @@ interface ForensicDao {
     suspend fun clearLogs()
 
     // Cell Tower Inventory
+    @Query("SELECT * FROM cell_towers")
+    suspend fun getAllTowersList(): List<CellTower>
+
     @Query("SELECT * FROM cell_towers WHERE isBlocked = 1")
     fun getBlockedTowers(): Flow<List<CellTower>>
 
