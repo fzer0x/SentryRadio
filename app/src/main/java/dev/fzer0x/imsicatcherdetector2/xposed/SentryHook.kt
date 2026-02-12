@@ -27,6 +27,7 @@ import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
 import de.robv.android.xposed.callbacks.XC_LoadPackage.LoadPackageParam
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.ConcurrentHashMap
 
 class SentryHook : IXposedHookLoadPackage {
 
@@ -42,10 +43,32 @@ class SentryHook : IXposedHookLoadPackage {
 
     private var settingsContext: Context? = null
     
-    // Performance optimization: Cache frequent operations
-    private val hookCache = mutableMapOf<String, Long>()
+    // Performance optimization: Enhanced caching with LRU eviction
+    private val hookCache = ConcurrentHashMap<String, CacheEntry>()
     private val CACHE_DURATION = 5000L // 5 seconds
-    private val MAX_CACHE_SIZE = 100
+    private val MAX_CACHE_SIZE = 500 // Increased from 100
+    
+    // Cache entry with access tracking
+    private data class CacheEntry(
+        val timestamp: Long,
+        var accessCount: Long = 0,
+        var lastAccess: Long = System.currentTimeMillis()
+    )
+    
+    // Performance metrics
+    private var cacheHits = 0L
+    private var cacheMisses = 0L
+    
+    // Precompiled regex patterns for ciphering detection
+    private val cipheringPatterns = listOf(
+        "CIPHERING\\s*[:=]\\s*OFF".toRegex(),
+        "CIPHERING\\s*[:=]\\s*0".toRegex(),
+        "CIPHERING\\s*[:=]\\s*FALSE".toRegex(),
+        "ENCRYPTION\\s*[:=]\\s*FALSE".toRegex(),
+        "A5/0".toRegex(),
+        "NO\\s*CIPHER".toRegex(),
+        "CIPHER\\s*DISABLED".toRegex()
+    )
 
     override fun handleLoadPackage(lpparam: LoadPackageParam) {
         if (lpparam.packageName == "android") {
@@ -123,35 +146,36 @@ class SentryHook : IXposedHookLoadPackage {
                     val response = param.args[0] ?: return
                     val respStr = response.toString().uppercase()
                     
-                    // Performance optimization: Cache frequent pattern checks
+                    // Performance optimization: Enhanced cache with precompiled patterns
                     val cacheKey = "cipher_${respStr.hashCode()}"
                     val now = System.currentTimeMillis()
-                    val lastCheck = hookCache[cacheKey] ?: 0L
                     
-                    if (now - lastCheck < CACHE_DURATION) {
-                        return // Skip processing if recently checked
+                    // Check cache with LRU tracking
+                    val cachedEntry = hookCache[cacheKey]
+                    if (cachedEntry != null) {
+                        if (now - cachedEntry.timestamp < CACHE_DURATION) {
+                            cachedEntry.accessCount++
+                            cachedEntry.lastAccess = now
+                            cacheHits++
+                            return // Skip processing if recently checked
+                        } else {
+                            hookCache.remove(cacheKey)
+                        }
                     }
                     
-                    // Cleanup cache if too large
+                    cacheMisses++
+                    
+                    // Cleanup cache if too large with intelligent eviction
                     if (hookCache.size > MAX_CACHE_SIZE) {
-                        val cutoff = now - CACHE_DURATION * 2
-                        hookCache.entries.removeIf { it.value < cutoff }
+                        evictLeastUsefulHookEntries(now)
                     }
                     
-                    hookCache[cacheKey] = now
+                    // Add to cache
+                    hookCache[cacheKey] = CacheEntry(now, 1L, now)
 
-                    val cipheringPatterns = listOf(
-                        "CIPHERING\\s*[:=]\\s*OFF",
-                        "CIPHERING\\s*[:=]\\s*0",
-                        "CIPHERING\\s*[:=]\\s*FALSE",
-                        "ENCRYPTION\\s*[:=]\\s*FALSE",
-                        "A5/0",
-                        "NO\\s*CIPHER",
-                        "CIPHER\\s*DISABLED"
-                    )
-
+                    // Use precompiled patterns for better performance
                     val isCipheringOff = cipheringPatterns.any { pattern ->
-                        respStr.matches(Regex(".*$pattern.*"))
+                        pattern.containsMatchIn(respStr)
                     }
 
                     if (isCipheringOff) {
@@ -323,6 +347,66 @@ class SentryHook : IXposedHookLoadPackage {
         }
     }
 
+    /**
+     * Intelligent LRU+LFU hybrid eviction for hook cache
+     */
+    private fun evictLeastUsefulHookEntries(now: Long) {
+        val entriesToRemove = hookCache.entries
+            .sortedWith(compareBy<Map.Entry<String, CacheEntry>> { 
+                // Primary sort: Age (older first)
+                now - it.value.timestamp 
+            }.thenBy { 
+                // Secondary sort: Access frequency (less frequent first)
+                it.value.accessCount 
+            }.thenBy { 
+                // Tertiary sort: Last access time (older first)
+                now - it.value.lastAccess 
+            })
+            .take(MAX_CACHE_SIZE / 10) // Remove 10% of entries
+            .map { entry -> entry.key }
+        
+        entriesToRemove.forEach { key -> 
+            hookCache.remove(key)
+        }
+        
+        XposedBridge.log("SentryHook: Cache eviction - removed ${entriesToRemove.size} entries")
+    }
+    
+    /**
+     * Get cache performance statistics for monitoring
+     */
+    private fun getHookCacheStats(): Map<String, Any> {
+        val totalRequests = cacheHits + cacheMisses
+        val hitRate = if (totalRequests > 0) (cacheHits.toDouble() / totalRequests * 100) else 0.0
+        
+        return mapOf(
+            "cacheSize" to hookCache.size,
+            "maxCacheSize" to MAX_CACHE_SIZE,
+            "cacheHits" to cacheHits,
+            "cacheMisses" to cacheMisses,
+            "hitRate" to hitRate,
+            "cacheDurationSeconds" to (CACHE_DURATION / 1000)
+        )
+    }
+    
+    /**
+     * Periodic cache cleanup and performance logging
+     */
+    private fun performCacheMaintenance() {
+        val now = System.currentTimeMillis()
+        val stats = getHookCacheStats()
+        
+        // Log performance metrics periodically
+        if (cacheHits + cacheMisses % 1000 == 0L) {
+            XposedBridge.log("SentryHook: Cache stats - Size: ${stats["cacheSize"]}, Hit rate: ${"%.2f".format(stats["hitRate"])}%")
+        }
+        
+        // Remove expired entries
+        hookCache.entries.removeIf { entry -> 
+            now - entry.value.timestamp > CACHE_DURATION * 2 
+        }
+    }
+    
     private fun isGsmRat(ss: ServiceState): Boolean {
         val voiceRat = XposedHelpers.callMethod(ss, "getVoiceNetworkType") as Int
         val dataRat = XposedHelpers.callMethod(ss, "getDataNetworkType") as Int

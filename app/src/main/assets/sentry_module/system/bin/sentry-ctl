@@ -4,21 +4,43 @@
 COMMAND=$1
 VALUE=$2
 
-# Performance optimization: Cache frequent operations
+# Performance optimization: Enhanced caching with compression
 CACHE_DIR="/data/local/tmp/sentry_cache"
 CACHE_TTL=300 # 5 minutes
+MAX_CACHE_SIZE=1000
+PERFORMANCE_LOG="/data/local/tmp/sentry_performance.log"
 mkdir -p "$CACHE_DIR"
+
+# Performance metrics
+CACHE_HITS=0
+CACHE_MISSES=0
+TOTAL_OPERATIONS=0
 
 cache_get() {
     local key="$1"
     local cache_file="$CACHE_DIR/${key}.cache"
-    if [ -f "$cache_file" ]; then
+    local meta_file="$CACHE_DIR/${key}.meta"
+    
+    if [ -f "$cache_file" ] && [ -f "$meta_file" ]; then
         local file_age=$(($(date +%s) - $(stat -c %Y "$cache_file" 2>/dev/null || echo 0)))
         if [ $file_age -lt $CACHE_TTL ]; then
+            # Read metadata for access tracking
+            local access_count=$(cat "$meta_file" 2>/dev/null | cut -d: -f1 || echo "0")
+            local last_access=$(cat "$meta_file" 2>/dev/null | cut -d: -f2 || echo "$(date +%s)")
+            
+            # Update access statistics
+            echo "$((access_count + 1)):$(date +%s)" > "$meta_file"
+            
+            CACHE_HITS=$((CACHE_HITS + 1))
             cat "$cache_file" 2>/dev/null
             return 0
+        else
+            # Remove expired cache files
+            rm -f "$cache_file" "$meta_file"
         fi
     fi
+    
+    CACHE_MISSES=$((CACHE_MISSES + 1))
     return 1
 }
 
@@ -26,13 +48,63 @@ cache_set() {
     local key="$1"
     local value="$2"
     local cache_file="$CACHE_DIR/${key}.cache"
+    local meta_file="$CACHE_DIR/${key}.meta"
+    
+    # Check cache size limit
+    local current_size=$(find "$CACHE_DIR" -name "*.cache" | wc -l)
+    if [ $current_size -ge $MAX_CACHE_SIZE ]; then
+        cache_cleanup
+    fi
+    
     echo "$value" > "$cache_file"
-    chmod 600 "$cache_file"
+    echo "1:$(date +%s)" > "$meta_file"
+    chmod 600 "$cache_file" "$meta_file"
+}
+
+# Intelligent cache cleanup with LRU+LFU eviction
+cache_cleanup() {
+    local now=$(date +%s)
+    
+    # Create temporary file with cache entries and their scores
+    find "$CACHE_DIR" -name "*.meta" -exec sh -c '
+        meta_file="$1"
+        key=$(basename "$meta_file" .meta)
+        cache_file="'$CACHE_DIR'/${key}.cache"
+        if [ -f "$cache_file" ]; then
+            file_age=$(('$now' - $(stat -c %Y "$cache_file" 2>/dev/null || echo 0)))
+            access_count=$(cat "$meta_file" 2>/dev/null | cut -d: -f1 || echo "0")
+            last_access=$(cat "$meta_file" 2>/dev/null | cut -d: -f2 || echo "0")
+            # Calculate score: lower score = higher priority for removal
+            score=$((file_age / 10 - access_count * 2 + ('$now' - last_access) / 20))
+            echo "$score:$key"
+        fi
+    ' sh {} \; | sort -n | head -n $((MAX_CACHE_SIZE / 10)) | cut -d: -f2 > /tmp/cache_cleanup.tmp
+    
+    # Remove least useful entries
+    while IFS= read -r key; do
+        rm -f "$CACHE_DIR/${key}.cache" "$CACHE_DIR/${key}.meta"
+    done < /tmp/cache_cleanup.tmp
+    
+    rm -f /tmp/cache_cleanup.tmp
+    log_action "Cache cleanup completed"
+}
+
+# Performance logging
+log_performance() {
+    TOTAL_OPERATIONS=$((TOTAL_OPERATIONS + 1))
+    if [ $((TOTAL_OPERATIONS % 100)) -eq 0 ]; then
+        local hit_rate=0
+        if [ $((CACHE_HITS + CACHE_MISSES)) -gt 0 ]; then
+            hit_rate=$((CACHE_HITS * 100 / (CACHE_HITS + CACHE_MISSES)))
+        fi
+        echo "$(date): Cache stats - Hits: $CACHE_HITS, Misses: $CACHE_MISSES, Hit rate: ${hit_rate}%" >> "$PERFORMANCE_LOG"
+    fi
 }
 
 log_action() {
     log -t SentryHardening "CLI: $1"
     echo "$1"
+    log_performance
 }
 
 case $COMMAND in

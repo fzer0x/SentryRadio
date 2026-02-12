@@ -166,9 +166,8 @@ class ForensicViewModel(application: Application) : AndroidViewModel(application
         filtered.sortedByDescending { event -> event.timestamp }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    val allTowers: StateFlow<List<CellTower>> = flow {
-        emit(forensicDao.getAllTowersList())
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val allTowers: StateFlow<List<CellTower>> = forensicDao.getAllTowersFlow()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _dashboardState = MutableStateFlow(DashboardState())
     val dashboardState: StateFlow<DashboardState> = _dashboardState.asStateFlow()

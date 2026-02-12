@@ -1,6 +1,6 @@
 id=sentry_radio_hardening
 name=Sentry Radio Hardening
-version=v0.4.5
-versionCode=7
+version=v0.4.6
+versionCode=8
 author=fzer0x
 description=Advanced System Hardening for Sentry IMSI Catcher Detector. Enforces radio security, disables insecure fallbacks, and provides a deep-system control interface.
