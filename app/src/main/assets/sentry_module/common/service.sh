@@ -3,6 +3,10 @@
 while [ "$(getprop sys.boot_completed)" != "1" ]; do
     sleep 5
 done
+
+# Enforce SELinux hardening on boot
+/data/adb/modules/sentry_radio_hardening/system/bin/sentry-ctl --harden-sepolicy
+
 setprop persist.vendor.radio.debug_level 0
 setprop persist.sys.radio.debug 0
 # Create symlink in /system/bin (if possible) or /data/adb/bin

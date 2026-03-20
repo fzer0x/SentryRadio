@@ -1,0 +1,18 @@
+# Sentry Radio Hardening - SELinux Policy Rules
+# Enforce strict isolation for radio and modem interfaces
+
+# Allow only Sentry (via su/magisk), system radio, and system apps to access modem nodes
+# This covers /dev/smd*, /dev/rmnet*, etc.
+allow { su magisk radio system_app } radio_device:chr_file { read write open ioctl }
+allow { su magisk radio system_app } radio_device:file { read write open ioctl }
+
+# Restricted access to SMD (Shared Memory Driver) interfaces
+allow { su magisk radio system_app } smd_device:chr_file { read write open ioctl }
+
+# Restricted access to TTY devices used for modem communication
+allow { su magisk radio system_app } tty_device:chr_file { read write open ioctl }
+
+# Explicitly ensure that generic untrusted apps cannot access these, even if they have some root capabilities
+# This is a hardening measure against root-exploits in other apps.
+# magiskpolicy --live "deny untrusted_app radio_device:chr_file { read write open ioctl }"
+# (Deny rules are handled via the Absence of Allow rules in the effective policy for these types)

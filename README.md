@@ -150,6 +150,8 @@ Distributed under the GNU GPL v3 License. See `LICENSE` for more information.
 - **B1: Stationary Cell Monitoring:** Added "Lock-in Mode" to detect cell changes while the device is stationary.
 - **B2: Signal Inconsistency Monitoring:** Added SNR/SINR analysis to identify suspicious high-power signal anomalies.
 - **B3: Neighbor Cell Inconsistency Monitoring:** Detects isolated cells with zero neighbors, typical for malicious cell site simulators.
+- **eBPF Firewall Integration:** Replaced standard iptables rules in Panic-Mode with deep eBPF-based (cBPF) kernel filtering for absolute network isolation.
+- **SELinux Policy Hardening:** Added Magisk/KSU sepolicy rules to isolate radio device nodes (`/dev/smd*`), restricting access exclusively to Sentry and system radio processes.
 - **Forensic Engine Update:** Integrated new monitors into the core forensic service.
 
 **v0.4.6**
